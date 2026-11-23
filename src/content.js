@@ -125,18 +125,10 @@
   // contient une image et a des frères (une grille). Idée reprise de wm-qol (Kitsoune), qui résiste aux mises à jour.
   const OURS = "#wme-root, .wme-badge";
 
-  // Fenêtre posée par-dessus la page (la fiche d'une carte) : pas de badge, le site y montre déjà le prix. Elle se
-  // reconnaît à son rôle de dialogue, ou à un parent en position fixe (le site n'annonce pas toujours le rôle).
-  function inOverlay(el) {
-    for (let cur = el; cur && cur !== document.body; cur = cur.parentElement) {
-      if (cur.getAttribute("role") === "dialog" || cur.getAttribute("aria-modal") === "true") return true;
-      if (getComputedStyle(cur).position === "fixed") return true;
-    }
-    return false;
-  }
-
-  // Taille minimale de l'illustration d'une carte : les petites images (icônes des étiquettes…) ne comptent pas.
+  // Taille de l'illustration d'une carte : les petites images (icônes des étiquettes…) ne comptent pas. Une « carte »
+  // plus large que CARD_MAX_PX est en fait une fenêtre (la fiche d'une carte) : le titre de son en-tête n'a pas de badge.
   const ART_MIN_PX = 60;
+  const CARD_MAX_PX = 480;
   const hasArt = (el) => [...el.querySelectorAll("img")].some((img) => img.getBoundingClientRect().width >= ART_MIN_PX);
 
   // Le badge de rareté de la tuile : une feuille de texte « SR », « L », « L✦ » (shiny)… C'est la rareté de CET
@@ -165,11 +157,17 @@
     for (const prop of COPIED_STYLES) badgeEl.style.setProperty(prop, from.getPropertyValue(prop));
     badgeEl.style.display = "inline-flex";
     badgeEl.style.alignItems = "center";
-    // Même hauteur que le badge de rareté. Les positions mesurées tiennent compte d'un agrandissement au survol : on
-    // les ramène à la taille normale de la carte (offsetWidth ignore cet agrandissement).
-    const scale = tile.getBoundingClientRect().width / (tile.offsetWidth || 1) || 1;
-    const top = (rarityEl.getBoundingClientRect().top - tile.getBoundingClientRect().top) / scale - tile.clientTop;
+    // Collé à droite du badge de rareté, à sa hauteur : jamais par-dessus, même sur une carte étroite. Les positions
+    // mesurées tiennent compte d'un agrandissement au survol : on les ramène à la taille normale de la carte
+    // (offsetWidth ignore cet agrandissement).
+    const tileBox = tile.getBoundingClientRect();
+    const rarityBox = rarityEl.getBoundingClientRect();
+    const scale = tileBox.width / (tile.offsetWidth || 1) || 1;
+    const top = (rarityBox.top - tileBox.top) / scale - tile.clientTop;
+    const left = (rarityBox.right - tileBox.left) / scale - tile.clientLeft + 4;
     badgeEl.style.top = `${Math.max(0, top).toFixed(1)}px`;
+    badgeEl.style.left = `${Math.max(0, left).toFixed(1)}px`;
+    badgeEl.style.transform = "none";
   }
 
   // La carte d'un titre : son plus petit parent qui contient aussi l'illustration. C'est l'élément que le site anime au
@@ -181,11 +179,11 @@
       const el = node.parentElement;
       if (!el || el.closest(OURS)) continue;
       const entry = seen.get(norm(node.nodeValue));
-      if (!entry || inOverlay(el)) continue;
+      if (!entry) continue;
       let cur = el;
       for (let i = 0; i < 10 && cur && cur !== document.body; i++, cur = cur.parentElement) {
         if (hasArt(cur)) {
-          if (!tiles.has(cur)) tiles.set(cur, entry);
+          if (cur.offsetWidth <= CARD_MAX_PX && !tiles.has(cur)) tiles.set(cur, entry);
           break;
         }
       }
@@ -258,7 +256,11 @@
     badgeTimer = setTimeout(drawBadges, 300);
   }
 
+  // Sur un profil (vitrines), le prix n'apparaît qu'au survol de la carte : une vitrine se regarde.
+  const hoverOnly = () => location.pathname.startsWith("/profile");
+
   function drawBadges() {
+    document.documentElement.classList.toggle("wme-hover-only", hoverOnly());
     if (!settings.badges) {
       document.querySelectorAll(".wme-badge").forEach((b) => b.remove());
       return;
