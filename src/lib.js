@@ -12,14 +12,13 @@ const WME = (() => {
   /** Titre comparable : casse, espaces et accents composés harmonisés (« Napoléon » == « napoléon »). */
   const norm = (s) => String(s || "").normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
 
-  // Cote d'une carte, même calcul que le bot (src/core/pricing.py, history_quotes) : la moyenne des dernières
-  // semaines qui ont des ventes, pondérée par leur nombre, en remontant jusqu'à 10 ventes ou 4 semaines.
-  const HISTORY_WEEKS = 4;
-  const HISTORY_MIN_SALES = 10;
-
   /**
-   * Réponse de /api/marketplace/cards/{id}/price-history -> { "SR": { avg, count }, … }.
+   * Prix moyen par rareté, comme le site l'affiche sur la fiche d'une carte : la moyenne de la semaine la plus récente
+   * qui a des ventes (« Prix moyen de la semaine », ou « Dernier prix moyen connu » si cette semaine n'a pas encore de
+   * vente). Le site le calcule dans le navigateur à partir de /api/marketplace/cards/{id}/price-history ; on refait
+   * le même calcul sur la même réponse, pour afficher exactement son chiffre.
    * Format relevé le 22/11 : { computed_at, by_rarity: { "SR": { weekly: [ { start, avg, min, max, count } ] } } }.
+   * -> { "SR": { avg, count, week: "2026-11-16" } }
    */
   function quotes(history) {
     const out = {};
@@ -28,19 +27,19 @@ const WME = (() => {
     for (const [rarity, series] of Object.entries(byRarity)) {
       const weekly = series && series.weekly;
       if (rank(rarity) < 0 || !Array.isArray(weekly)) continue;
-      const points = weekly
-        .filter((p) => p && Number(p.avg) > 0 && Number.isInteger(p.count) && p.count > 0)
-        .sort((a, b) => String(b.start || "").localeCompare(String(a.start || ""))); // les plus récentes d'abord
-      const kept = [];
-      for (const p of points) {
-        kept.push(p);
-        const sales = kept.reduce((n, k) => n + k.count, 0);
-        if (kept.length >= HISTORY_WEEKS || sales >= HISTORY_MIN_SALES) break;
-      }
-      const total = kept.reduce((n, k) => n + k.count, 0);
-      if (total) out[rarity] = { avg: kept.reduce((s, k) => s + k.avg * k.count, 0) / total, count: total };
+      const latest = weekly
+        .filter((p) => p && Number(p.avg) > 0 && Number(p.count) > 0)
+        .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")))[0];
+      if (latest) out[rarity] = { avg: Number(latest.avg), count: Number(latest.count), week: String(latest.start || "") };
     }
     return out;
+  }
+
+  /** Lundi (UTC) de la semaine en cours, « 2026-11-23 » : une cote d'une semaine plus ancienne est « reportée ». */
+  function currentWeek(now = new Date()) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
   }
 
   /** Une carte telle que le site la renvoie -> { id, title, rarity, shiny } ; null si elle n'est pas lisible. */
@@ -75,37 +74,6 @@ const WME = (() => {
     return out;
   }
 
-  /**
-   * Pages de /api/cards?wishlist=1 (ta liste de souhaits) -> amis classés par nombre de cartes :
-   * [ { name, cards: [ { id, title, rarities: ["L", "SR"] } ] } ]. `minRarity` écarte les exemplaires plus bas
-   * (pour une carte que tu as déjà en SR, seule une UR ou une L t'avance).
-   */
-  function friendsFromCatalog(pages, minRarity = "") {
-    const floor = minRarity ? rank(minRarity) : -1;
-    const friends = new Map();
-    const seen = new Set();
-    for (const page of pages) {
-      const owners = (page && page.friendOwners) || {};
-      for (const c of (page && page.cards) || []) {
-        if (!c || !c.id || seen.has(c.id)) continue;
-        seen.add(c.id);
-        for (const owner of owners[c.id] || []) {
-          if (!owner || !owner.username) continue;
-          const rarities = [...new Set((owner.rarities || []).map((r) => String(r).toUpperCase()))]
-            .filter((r) => rank(r) < 0 || rank(r) >= floor) // rareté inconnue : gardée
-            .sort((a, b) => rank(b) - rank(a));
-          if (owner.rarities && owner.rarities.length && !rarities.length) continue;
-          if (!friends.has(owner.username)) friends.set(owner.username, []);
-          friends.get(owner.username).push({ id: c.id, title: c.wikipedia_title || "?", rarities });
-        }
-      }
-    }
-    const best = (c) => Math.max(-1, ...c.rarities.map(rank));
-    return [...friends.entries()]
-      .map(([name, cards]) => ({ name, cards: cards.sort((a, b) => best(b) - best(a) || a.title.localeCompare(b.title)) }))
-      .sort((a, b) => b.cards.length - a.cards.length || a.name.localeCompare(b.name));
-  }
-
   /** 1250 -> « 1 250 », 12500 -> « 12,5 k » : court, pour un badge. */
   function wb(n) {
     if (!Number.isFinite(n)) return "?";
@@ -113,7 +81,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, cardsIn, friendsFromCatalog, wb };
+  return { RARITIES, rank, norm, quotes, currentWeek, cardsIn, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;
