@@ -1,0 +1,111 @@
+/* Tout est préfixé « wme- » : aucun risque de toucher aux styles du site ou d'une autre extension. */
+
+.wme-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 5;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font: 700 11px/1.5 system-ui, sans-serif;
+  color: #fde68a;
+  background: rgba(15, 15, 20, 0.85);
+  border: 1px solid rgba(253, 230, 138, 0.45);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.wme-badge[data-state="wait"] { color: #9ca3af; border-color: rgba(156, 163, 175, 0.4); }
+.wme-badge[data-state="none"] { color: #6b7280; border-color: rgba(107, 114, 128, 0.4); }
+
+#wme-root {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  font: 13px/1.45 system-ui, sans-serif;
+  color: #e5e7eb;
+}
+
+.wme-fab {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #111118;
+  color: #fde68a;
+  font: 800 13px system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+.wme-panel {
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: #111118;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+.wme-panel header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.wme-panel header nav { display: flex; gap: 4px; flex: 1; }
+.wme-panel header nav button, .wme-x {
+  border: 1px solid transparent;
+  background: none;
+  color: #9ca3af;
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.wme-panel header nav button.on { color: #fde68a; border-color: rgba(253, 230, 138, 0.4); }
+
+.wme-body { padding: 10px 12px; overflow-y: auto; }
+.wme-body p { margin: 0 0 6px; }
+.wme-body ul { margin: 4px 0 8px; padding-left: 18px; }
+.wme-body details { padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.wme-body summary { cursor: pointer; }
+.wme-body a { color: #93c5fd; }
+.wme-muted { color: #9ca3af; font-size: 12px; }
+.wme-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wme-body select { background: #1f1f2a; color: inherit; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; }
+
+.wme-btn {
+  margin: 4px 0 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(253, 230, 138, 0.4);
+  background: rgba(253, 230, 138, 0.08);
+  color: #fde68a;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wme-rar {
+  display: inline-block;
+  margin-left: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+}
+/* Couleurs des raretés, les mêmes que le site et le bot. */
+.wme-rar[data-r="L"] { color: #ffd700; }
+.wme-rar[data-r="UR"] { color: #ff8c00; }
+.wme-rar[data-r="SR"] { color: #ff69b4; }
+.wme-rar[data-r="R"] { color: #a855f7; }
+.wme-rar[data-r="PC"] { color: #3b82f6; }
+.wme-rar[data-r="C"] { color: #22c55e; }

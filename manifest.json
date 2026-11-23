@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "WikiMastered – Cotes et amis",
+  "version": "0.1.0",
+  "description": "Wiki Masters en lecture seule : la cote de chaque carte sur la page, et les cartes de ta liste de souhaits chez tes amis.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.wiki-masters.com/*", "https://wiki-masters.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.wiki-masters.com/*", "https://wiki-masters.com/*"],
+      "js": ["src/inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.wiki-masters.com/*", "https://wiki-masters.com/*"],
+      "js": ["src/lib.js", "src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": { "id": "wikimastered-extension@maksiime", "strict_min_version": "128.0" }
+  }
+}
