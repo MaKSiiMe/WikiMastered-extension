@@ -8,9 +8,10 @@
   if (window.__wmeHooked) return; // déjà installé (rechargement partiel de la page)
   window.__wmeHooked = true;
 
-  // Réponses qui contiennent des cartes : ta collection, le marché, la collection d'un ami, le catalogue.
-  const WATCHED = /\/api\/(my-collection|marketplace|profile\/[^/]+\/collection|cards)(?:[/?#]|$)/i;
-  const IGNORED = /\/price-history|\/sales|\/bid(?:[/?#]|$)/i;
+  // Toutes les réponses de l'API du site : src/lib.js y cherche les cartes, où qu'elles soient (collection, marché,
+  // vitrines…). Sauf l'historique des prix : c'est l'extension qui le demande, et il ne contient pas de carte.
+  const WATCHED = /\/api\//i;
+  const IGNORED = /\/price-history|\/sales(?:[/?#]|$)/i;
 
   // Le content script démarre plus tard (« document_idle ») : les réponses arrivées avant sont gardées et renvoyées
   // quand il annonce qu'il écoute. Les renvoyer deux fois ne gêne pas : il note simplement les mêmes cartes.

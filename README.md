@@ -1,6 +1,6 @@
 # WikiMastered – Prix des cartes
 
-Extension de navigateur pour [Wiki Masters](https://www.wiki-masters.com/), **en lecture seule** : un badge `≈ 1 250` sur chaque carte affichée (ta collection, le marché, le profil d'un ami). C'est le **prix moyen du site**, le même chiffre que sur la fiche de la carte (« Prix moyen de la semaine », ou « Dernier prix moyen connu » si la semaine n'a pas encore de vente), dans la rareté de la carte.
+Extension de navigateur pour [Wiki Masters](https://www.wiki-masters.com/), **en lecture seule** : un badge `≈ 1 250` sur chaque carte affichée (ta collection, le marché, les vitrines, le profil d'un ami), à sa taille. C'est le **prix moyen du site**, le même chiffre que sur la fiche de la carte (« Prix moyen de la semaine », ou « Dernier prix moyen connu » si la semaine n'a pas encore de vente), dans la rareté de la carte.
 
 Elle ne clique, ne mise, ne vend et n'étiquette jamais rien. Elle fait seulement des lectures, comme le site quand tu ouvres la fiche d'une carte : une à la fois, au moins une demi-seconde d'écart, et une pause d'une minute si le site dit « trop de requêtes ». Les prix sont gardés 6 h dans le navigateur.
 
@@ -68,7 +68,7 @@ flowchart LR
 | Fichier | Rôle |
 |---|---|
 | [`manifest.json`](manifest.json) | La carte d'identité : nom, version, sites concernés (`host_permissions`), droits (`storage`), scripts à injecter. Manifest V3, le format actuel de Chrome et Firefox. |
-| [`src/inject.js`](src/inject.js) | Tourne **dans** la page (`"world": "MAIN"`), avant le site. Il enveloppe `window.fetch` pour recopier les réponses de l'API qui contiennent des cartes. Il ne modifie rien. |
+| [`src/inject.js`](src/inject.js) | Tourne **dans** la page (`"world": "MAIN"`), avant le site. Il enveloppe `window.fetch` pour recopier les réponses de l'API ; `lib.js` y cherche les cartes, où qu'elles soient. Il ne modifie rien. |
 | [`src/content.js`](src/content.js) | Le *content script* : il voit la page (le DOM) mais vit dans un monde à part, invisible du site. Il reçoit les réponses copiées, demande les prix, pose les badges et dessine le panneau. |
 | [`src/lib.js`](src/lib.js) | Les calculs purs (prix moyen, cartes d'une réponse) : aucun accès au navigateur, donc testables simplement. |
 | [`src/styles.css`](src/styles.css) | Le style des badges et du panneau, tout préfixé `wme-`. |

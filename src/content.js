@@ -101,7 +101,8 @@
     }, 1000);
   }
 
-  // Réponses de l'API recopiées par src/inject.js.
+  // Réponses de l'API recopiées par src/inject.js. On note seulement les cartes : leur prix n'est demandé que si
+  // elles sont trouvées sur la page (voir badge), pas pour celles d'un échange ou d'une notification.
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.source !== "wme-page") return;
     for (const c of cardsIn(event.data.data)) {
@@ -109,7 +110,6 @@
       const entry = seen.get(key) || { id: c.id, title: c.title, rarities: new Set() };
       if (c.rarity) entry.rarities.add(c.rarity);
       seen.set(key, entry);
-      want(c.id);
     }
     scheduleBadges();
     refreshPricesTab();
@@ -167,7 +167,12 @@
     return [...tiles].filter(([t]) => ![...tiles.keys()].some((o) => o !== t && t.contains(o)));
   }
 
+  // Taille du badge proportionnelle à la largeur de la carte : ~1/15 de la largeur, entre 8 et 14 px.
+  // offsetWidth ignore l'agrandissement au survol (transform) : le badge grandit avec la carte, sans recalcul.
+  const badgeFontPx = (tile) => Math.max(8, Math.min(14, tile.offsetWidth / 15));
+
   function badge(tile, entry) {
+    want(entry.id);
     const rarity = tileRarity(tile, entry);
     const entryPrices = prices[entry.id];
     let text = "…";
@@ -198,6 +203,8 @@
       if (getComputedStyle(tile).position === "static") tile.style.position = "relative";
       tile.append(el);
     }
+    const size = `${badgeFontPx(tile).toFixed(1)}px`;
+    if (el.style.fontSize !== size) el.style.fontSize = size;
     if (el.textContent !== text) el.textContent = text;
     el.title = tip;
     el.dataset.state = state;
@@ -300,7 +307,7 @@
         " Badges de prix sur les cartes"),
       h("button", {
         className: "wme-btn",
-        on: { click: () => { prices = {}; store.set(PRICES_KEY, prices); seen.forEach((e) => want(e.id)); drawBadges(); } },
+        on: { click: () => { prices = {}; store.set(PRICES_KEY, prices); drawBadges(); } },
       }, "Relire tous les prix"),
       h("p", { className: "wme-muted" },
         "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté. " +

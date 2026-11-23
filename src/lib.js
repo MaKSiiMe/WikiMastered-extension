@@ -54,23 +54,30 @@ const WME = (() => {
   }
 
   /**
-   * Les cartes contenues dans une réponse du site, quelle qu'elle soit : ta collection (`collection`), le marché
-   * (`auctions`), une enchère seule (`auction` ou `card`), le catalogue (`cards`). Une vente a sa propre rareté
-   * (`snapshot_rarity`) : la carte a pu changer de rareté depuis.
+   * Toutes les cartes d'une réponse du site, où qu'elles soient : ta collection (`collection[].card`), le marché
+   * (`auctions[].card`), les vitrines (`showcase[].user_card.card`), le catalogue (`cards[]`)… Une carte est un objet
+   * avec `id` et `wikipedia_title`. L'objet qui la contient (exemplaire, vente) donne la rareté de CET exemplaire
+   * (`snapshot_rarity`) et s'il est shiny : la carte a pu changer de rareté depuis.
+   * Lire toute la réponse plutôt que des chemins connus : une nouvelle page du site est couverte sans retouche.
    */
   function cardsIn(data) {
-    if (!data || typeof data !== "object") return [];
     const out = [];
-    const push = (c) => c && out.push(c);
-    for (const item of Array.isArray(data.collection) ? data.collection : []) {
-      push(card(item && item.card, item && item.snapshot_rarity, item && item.is_shiny));
-    }
-    for (const a of Array.isArray(data.auctions) ? data.auctions : []) {
-      push(card(a && a.card, a && a.snapshot_rarity, a && a.is_shiny));
-    }
-    for (const c of Array.isArray(data.cards) ? data.cards : []) push(card(c));
-    const single = data.auction || (data.card ? data : null);
-    if (single) push(card(single.card, single.snapshot_rarity, single.is_shiny));
+    const visit = (node, holder, depth) => {
+      if (!node || typeof node !== "object" || depth > 8) return;
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, holder, depth + 1);
+        return;
+      }
+      if (node.id && typeof node.wikipedia_title === "string") {
+        const c = card(node, holder && holder.snapshot_rarity, holder && holder.is_shiny);
+        if (c) out.push(c);
+        return; // une carte ne contient pas d'autres cartes
+      }
+      for (const [key, value] of Object.entries(node)) {
+        if (value && typeof value === "object") visit(value, key === "card" ? node : null, depth + 1);
+      }
+    };
+    visit(data, null, 0);
     return out;
   }
 
