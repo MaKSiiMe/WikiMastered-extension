@@ -1,16 +1,20 @@
 /* Tout est préfixé « wme- » : aucun risque de toucher aux styles du site ou d'une autre extension. */
 
+/* En haut au centre de la carte : les coins sont pris par la rareté (gauche) et l'étoile des favoris (droite).
+   z-index élevé : l'image et l'étoile du site sont posées par-dessus le reste de la carte. */
 .wme-badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 5;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
   padding: 1px 6px;
   border-radius: 6px;
   font: 700 11px/1.5 system-ui, sans-serif;
   color: #fde68a;
-  background: rgba(15, 15, 20, 0.85);
-  border: 1px solid rgba(253, 230, 138, 0.45);
+  background: #0f0f14;
+  border: 1px solid rgba(253, 230, 138, 0.55);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
   pointer-events: auto;
   white-space: nowrap;
 }

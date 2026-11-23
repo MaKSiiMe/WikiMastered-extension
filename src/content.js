@@ -264,7 +264,7 @@
     }
     const panel = h("section", { className: "wme-panel" },
       h("header", {},
-        h("b", {}, "WikiMastered · prix"),
+        h("b", {}, `WikiMastered · prix · v${chrome.runtime.getManifest().version}`),
         h("button", { className: "wme-x", title: "Fermer", on: { click: () => toggle(false) } }, "✕")),
       pricesTab());
     root.replaceChildren(panel, fab);
