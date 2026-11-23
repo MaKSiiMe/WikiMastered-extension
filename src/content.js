@@ -312,12 +312,27 @@
   }
 
   // ------------------------------------------------------------------ bilan d'un échange
-  // Un échange est « affiché » quand chacune de ses cartes a une tuile sur la page. Le bilan se pose en tête du plus
-  // petit bloc qui contient toutes ses cartes (le détail de l'échange).
-  function commonAncestor(elements) {
-    let node = elements[0];
-    while (node && !elements.every((e) => node.contains(e))) node = node.parentElement;
-    return node;
+  // Le bloc d'un échange : le plus petit élément qui contient une tuile de chaque côté de l'échange et AUCUNE tuile
+  // d'une autre carte. Une même carte peut apparaître dans plusieurs échanges de la liste : on essaie chacune de ses
+  // tuiles, et un bloc qui déborde sur un autre échange est écarté. Le bilan se pose juste après ce bloc.
+  function tradeBlock(trade, tiles) {
+    const ids = new Set(trade.sides.flatMap((s) => s.items.map((i) => i.id)));
+    const mine = tiles.filter(([, entry]) => ids.has(entry.id)).map(([tile]) => tile);
+    const others = tiles.filter(([, entry]) => !ids.has(entry.id)).map(([tile]) => tile);
+    const sideTiles = trade.sides.filter((s) => s.items.length)
+      .map((s) => tiles.filter(([, entry]) => s.items.some((i) => i.id === entry.id)).map(([tile]) => tile));
+    if (sideTiles.length === 0 || sideTiles.some((list) => list.length === 0)) return null;
+    let best = null;
+    for (const start of mine) {
+      for (let node = start.parentElement; node && node !== document.body; node = node.parentElement) {
+        if (others.some((t) => node.contains(t))) break; // déborde sur une autre carte : trop haut
+        if (sideTiles.every((list) => list.some((t) => node.contains(t)))) {
+          if (!best || best.contains(node)) best = node;
+          break;
+        }
+      }
+    }
+    return best;
   }
 
   function tradeLine(trade) {
@@ -332,26 +347,21 @@
 
   let shownTrades = [];
   function drawTrades(tiles) {
-    const tilesById = new Map();
-    for (const [tile, entry] of tiles) if (!tilesById.has(entry.id)) tilesById.set(entry.id, tile);
     const kept = new Set();
     shownTrades = [];
     for (const trade of trades.values()) {
-      const items = trade.sides.flatMap((s) => s.items);
-      if (!items.length || !items.every((i) => tilesById.has(i.id))) continue;
-      const cardTiles = items.map((i) => tilesById.get(i.id));
-      let block = commonAncestor(cardTiles);
-      if (!block || block === document.body || block === document.documentElement) continue;
-      let before = block.firstChild;
-      if (cardTiles.includes(block)) [before, block] = [block, block.parentElement]; // une seule carte : au-dessus d'elle
+      const block = tradeBlock(trade, tiles);
+      if (!block || !block.parentElement) continue;
+      for (const side of trade.sides) for (const item of side.items) want(item.id); // cartes sans tuile comprises
       const line = tradeLine(trade);
-      shownTrades.push(line);
-      let el = block.querySelector(`:scope > .wme-trade[data-trade="${CSS.escape(trade.id)}"]`);
+      shownTrades.push(line.text);
+      const selector = `.wme-trade[data-trade="${CSS.escape(trade.id)}"]`;
+      let el = block.nextElementSibling && block.nextElementSibling.matches(selector) ? block.nextElementSibling : null;
       if (!el) {
         el = document.createElement("div");
         el.className = "wme-trade";
         el.dataset.trade = trade.id;
-        block.insertBefore(el, before);
+        block.after(el);
       }
       if (el.textContent !== `Bilan : ${line.text}`) el.textContent = `Bilan : ${line.text}`;
       el.title = "Cartes au prix moyen du site, dans leur rareté, plus les WB ajoutés. Les shiny n'ont pas de prix.";
@@ -422,7 +432,7 @@
       known: Object.values(prices).filter((p) => fresh(p) && !p.failed).length,
       waiting: queue.size,
       paused: pausedUntil > Date.now(),
-      trades: shownTrades.map((t) => t.text),
+      trades: shownTrades,
     });
   });
 

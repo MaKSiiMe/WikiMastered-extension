@@ -51,7 +51,7 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
 
 ## Utilisation
 
-- L'icône de l'extension (la carte dorée, à épingler via la pièce de puzzle de la barre d'outils) ouvre sa fenêtre, comme le raccourci `Alt+Maj+W` : combien de cartes ont un badge, leur valeur, le bilan de l'échange affiché, les badges à cacher ou montrer, et « Relire tous les prix ».
+- L'icône de l'extension (la carte dorée, à épingler via la pièce de puzzle de la barre d'outils) ouvre sa fenêtre, comme le raccourci `Alt+Maj+W` (Chrome ne le pose qu'à la première installation : sinon, règle-le dans `chrome://extensions/shortcuts`) : combien de cartes ont un badge, leur valeur, le bilan de l'échange affiché, les badges à cacher ou montrer, et « Relire tous les prix ».
 - Survole un badge pour le détail : semaine du prix, nombre de ventes, prix des autres raretés si la carte n'a pas de vente dans la sienne.
 
 ## Comment ça marche (pour apprendre)
@@ -102,7 +102,7 @@ Après une modification, clique sur ↻ dans `chrome://extensions` (ou **Recharg
 
 - **Shiny** : le site ne donne aucun prix propre aux shiny (son historique les mélange aux cartes ordinaires). Le badge d'une carte shiny affiche `✦ ?`, avec le prix de la carte ordinaire dans l'infobulle. Le bot relève les vraies ventes shiny : la v2 (synchro avec le bot) pourra les afficher.
 - **Rareté d'une tuile** : lue sur le badge de rareté de la carte (« SR », « L✦ »…), dont le badge de prix reprend le style. Sans badge de rareté, le prix prend un style neutre et la rareté vient des données du site ; `?` si la carte y existe en plusieurs raretés.
-- **Bilan d'un échange** : affiché seulement quand toutes ses cartes sont visibles (le détail de l'échange). Une carte shiny ou sans vente compte pour 0 et le bilan le signale (« 1 carte sans prix »).
+- **Bilan d'un échange** : posé sous les cartes de l'échange, dès qu'au moins une carte de chaque côté est visible (une carte sans image n'est pas repérée, mais son prix compte quand même). Une carte shiny ou sans vente compte pour 0 et le bilan le signale (« 1 carte sans prix »).
 - **`?` sur un badge** : le site a refusé la lecture du prix trois fois de suite (souvent parce qu'il est surchargé, ou qu'une autre extension le sollicite en même temps). Survole le badge pour l'erreur ; nouvel essai au bout de 10 minutes.
 
 ## Licence

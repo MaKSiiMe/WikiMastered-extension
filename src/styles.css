@@ -31,12 +31,12 @@
 /* Badge au style de la rareté : estompé tant que le prix n'est pas connu. */
 .wme-badge[data-styled][data-state="wait"], .wme-badge[data-styled][data-state="none"] { opacity: 0.6; }
 
-/* Bilan d'un échange, en tête du détail de l'échange. */
+/* Bilan d'un échange, juste sous ses cartes. */
 .wme-trade {
-  flex-basis: 100%;
-  width: 100%;
+  display: block;
+  align-self: flex-start;
   box-sizing: border-box;
-  margin: 0 0 8px;
+  margin: 8px 0;
   padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid rgba(253, 230, 138, 0.35);
