@@ -1,27 +1,27 @@
 // Content script : tourne sur chaque page de wiki-masters.com, dans un monde isolé (il voit le DOM, pas le JS du site).
 //
 // 1. Il reçoit de src/inject.js les réponses de l'API du site, et note les cartes affichées.
-// 2. Il demande la cote de chacune (historique des prix), une requête à la fois, et la garde 6 h.
+// 2. Il demande le prix moyen de chacune (historique des prix, une requête par carte : le site n'en a pas d'autre),
+//    une requête à la fois, et le garde 6 h.
 // 3. Il pose un badge « ≈ 1 250 » sur chaque carte de la page, retrouvée par son titre.
-// 4. Il ajoute un panneau (bouton « WM » en bas à gauche, ou Alt+Maj+W) : onglets « Prix » et « Amis ».
+// 4. Il ajoute un petit panneau (bouton « WM » en bas à gauche, ou Alt+Maj+W) : compteurs et réglages.
 //
-// Lecture seule : uniquement des requêtes GET, les mêmes que le site fait quand tu ouvres une carte ou ta liste de
-// souhaits. Aucun clic, aucune mise, aucune vente.
+// Lecture seule : uniquement des requêtes GET, les mêmes que le site fait quand tu ouvres la fiche d'une carte.
+// Aucun clic, aucune mise, aucune vente.
 (() => {
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { RARITIES, rank, norm, quotes, cardsIn, friendsFromCatalog, wb } = WME;
+  const { rank, norm, quotes, currentWeek, cardsIn, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
+  const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
   const PRICE_TTL_MS = 6 * 3600e3;      // une cote est redemandée après 6 h (comme le bot)
   const FAILED_TTL_MS = 3600e3;         // une cote refusée par le site est réessayée après 1 h
   const PRICE_KEEP_MS = 7 * 24 * 3600e3; // cotes de plus de 7 jours oubliées
-  const REQUEST_GAP_MS = 1000;          // au moins 1 s entre deux requêtes de l'extension…
-  const REQUEST_JITTER_MS = 700;        // … plus un délai au hasard, pour ne pas taper en rythme régulier
+  const REQUEST_GAP_MS = 500;           // au moins 0,5 s entre deux requêtes de l'extension (~30 s pour 50 cartes)…
+  const REQUEST_JITTER_MS = 300;        // … plus un délai au hasard, pour ne pas taper en rythme régulier
   const RATE_LIMIT_PAUSE_MS = 60e3;     // le site répond 429 (trop de requêtes) : pause d'une minute
-  const FRIENDS_TTL_MS = 3600e3;        // liste des amis gardée 1 h
-  const CATALOG_PAGE_SIZE = 50;
 
   // Firefox : `content.fetch` envoie la requête comme la page elle-même (cookies de session compris). Chrome n'a pas
   // `content` : le fetch du content script part déjà depuis la page.
@@ -34,8 +34,8 @@
     set: (key, value) => chrome.storage.local.set({ [key]: value }),
   };
 
-  let settings = { badges: true, minRarity: "" };
-  let prices = {}; // id de carte -> { at, q: { SR: { avg, count } }, failed? }
+  let settings = { badges: true };
+  let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set }
 
   // ------------------------------------------------------------------ requêtes au site, une à la fois
@@ -97,7 +97,7 @@
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      store.set("prices", prices);
+      store.set(PRICES_KEY, prices);
     }, 1000);
   }
 
@@ -162,22 +162,23 @@
     const rarity = tileRarity(tile, entry);
     const entryPrices = prices[entry.id];
     let text = "…";
-    let tip = "Cote en cours de lecture";
+    let tip = "Prix en cours de lecture";
     let state = "wait";
     if (entryPrices && fresh(entryPrices)) {
       const q = entryPrices.q[rarity];
       if (entryPrices.failed) {
-        [text, tip, state] = ["?", `Cote illisible : ${entryPrices.failed}`, "none"];
+        [text, tip, state] = ["?", `Prix illisible : ${entryPrices.failed}`, "none"];
       } else if (q) {
         const age = Math.round((Date.now() - entryPrices.at) / 60e3);
+        const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
         [text, state] = [`≈ ${wb(q.avg)}`, "ok"];
-        tip = `${entry.title} ${rarity} : moyenne de ${q.count} vente(s) récente(s), relevée il y a ${age} min.\n` +
-          "Shiny : la cote du site ne les distingue pas.";
+        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). Relevé il y a ${age} min.\n` +
+          "Shiny : le site ne les distingue pas.";
       } else {
         const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
           .map(([r, v]) => `${r} ≈ ${wb(v.avg)}`).join(", ");
         [text, state] = [rarity ? "—" : "?", "none"];
-        tip = rarity ? `Aucune vente récente en ${rarity}.` : "Rareté de cette carte non reconnue.";
+        tip = rarity ? `Aucune vente enregistrée en ${rarity}.` : "Rareté de cette carte non reconnue.";
         if (others) tip += ` Autres raretés : ${others}.`;
       }
     }
@@ -226,36 +227,6 @@
     if (!mutations.every(ourChange)) scheduleBadges();
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
 
-  // ------------------------------------------------------------------ liste de souhaits chez les amis
-  let friends = null; // { at, pages } : réponses de /api/cards?wishlist=1, recalculées avec le filtre de rareté
-  let friendsStatus = "";
-
-  async function loadFriends() {
-    friendsStatus = "Lecture de ta liste de souhaits…";
-    renderPanel();
-    const pages = [];
-    try {
-      for (let page = 0; page < 200; page++) {
-        const data = await get(`/api/cards?page=${page}&sort=rarity&wishlist=1`);
-        if (!Array.isArray(data.cards)) throw new Error("réponse inattendue du site");
-        // On ne garde que l'utile : le titre et les amis. Le reste (images, résumés) prendrait de la place.
-        pages.push({
-          cards: data.cards.map((c) => ({ id: c.id, wikipedia_title: c.wikipedia_title })),
-          friendOwners: data.friendOwners || {},
-        });
-        friendsStatus = `Lecture de ta liste de souhaits… page ${page + 1}`;
-        renderPanel();
-        if (data.cards.length < CATALOG_PAGE_SIZE) break;
-      }
-      friends = { at: Date.now(), pages };
-      friendsStatus = "";
-      store.set("friends", friends);
-    } catch (error) {
-      friendsStatus = `Lecture refusée : ${error.message || error}`;
-    }
-    renderPanel();
-  }
-
   // ------------------------------------------------------------------ panneau
   // Petit utilitaire pour créer des éléments sans innerHTML : le texte du site (titres, pseudos) est toujours posé en
   // texte, jamais interprété comme du HTML.
@@ -272,7 +243,6 @@
 
   let root = null;
   let open = false;
-  let tab = "prix";
 
   function buildPanel() {
     root = h("div", { id: "wme-root" });
@@ -282,7 +252,6 @@
 
   function toggle(force) {
     open = force ?? !open;
-    if (open && tab === "amis" && !friends && !friendsStatus) loadFriends();
     renderPanel();
   }
 
@@ -293,22 +262,17 @@
       root.replaceChildren(fab);
       return;
     }
-    const tabButton = (id, label) => h("button", {
-      className: tab === id ? "on" : "",
-      on: { click: () => { tab = id; toggle(true); } },
-    }, label);
     const panel = h("section", { className: "wme-panel" },
       h("header", {},
-        h("b", {}, "WikiMastered"),
-        h("nav", {}, tabButton("prix", "Prix"), tabButton("amis", "Amis")),
+        h("b", {}, "WikiMastered · prix"),
         h("button", { className: "wme-x", title: "Fermer", on: { click: () => toggle(false) } }, "✕")),
-      tab === "prix" ? pricesTab() : friendsTab());
+      pricesTab());
     root.replaceChildren(panel, fab);
   }
 
-  // Redessine le panneau seulement s'il montre l'onglet « Prix » : ailleurs, on ne referme pas ce que tu as ouvert.
+  // Les compteurs du panneau suivent l'arrivée des prix, s'il est ouvert.
   function refreshPricesTab() {
-    if (open && tab === "prix") renderPanel();
+    if (open) renderPanel();
   }
 
   function pricesTab() {
@@ -317,50 +281,21 @@
       h("p", {}, `Cartes repérées sur cette page : ${seen.size}`),
       h("p", {}, `Cartes avec un badge : ${shownTiles}`),
       h("p", {}, `Valeur des cartes affichées : ≈ ${wb(shownValue)} WB`),
-      h("p", { className: "wme-muted" }, `${known} cote(s) en mémoire · ${queue.size} en attente` +
+      h("p", { className: "wme-muted" }, `${known} prix en mémoire · ${queue.size} en attente` +
         (pausedUntil > Date.now() ? " · pause : le site limite les requêtes" : "")),
       h("label", {},
         h("input", {
           type: "checkbox", checked: settings.badges,
           on: { change: (e) => { settings.badges = e.target.checked; store.set("settings", settings); drawBadges(); } },
         }),
-        " Badges de cote sur les cartes"),
+        " Badges de prix sur les cartes"),
       h("button", {
         className: "wme-btn",
-        on: { click: () => { prices = {}; store.set("prices", prices); seen.forEach((e) => want(e.id)); drawBadges(); } },
-      }, "Relire toutes les cotes"),
+        on: { click: () => { prices = {}; store.set(PRICES_KEY, prices); seen.forEach((e) => want(e.id)); drawBadges(); } },
+      }, "Relire tous les prix"),
       h("p", { className: "wme-muted" },
-        "Cote = moyenne des ventes récentes dans la rareté de la carte (historique des prix du site), " +
-        "comme le bot. Lecture seule : l'extension ne mise et ne vend jamais."));
-  }
-
-  function friendsTab() {
-    const body = h("div", { className: "wme-body" });
-    const select = h("select", {
-      on: { change: (e) => { settings.minRarity = e.target.value; store.set("settings", settings); renderPanel(); } },
-    }, h("option", { value: "" }, "toutes"), ...RARITIES.map((r) => h("option", { value: r }, `${r} et plus`)));
-    select.value = settings.minRarity;
-    body.append(h("div", { className: "wme-row" },
-      h("label", {}, "Rareté : ", select),
-      h("button", { className: "wme-btn", on: { click: loadFriends } }, "Actualiser")));
-    if (friendsStatus) body.append(h("p", { className: "wme-muted" }, friendsStatus));
-    if (!friends) return body;
-
-    const list = friendsFromCatalog(friends.pages, settings.minRarity);
-    const wishlist = new Set(friends.pages.flatMap((p) => p.cards.map((c) => c.id))).size;
-    const found = new Set(list.flatMap((f) => f.cards.map((c) => c.id))).size;
-    const age = Math.round((Date.now() - friends.at) / 60e3);
-    body.append(h("p", {}, `${found} carte(s) de ta liste (${wishlist}) chez ${list.length} ami(s)`),
-      h("p", { className: "wme-muted" }, `Lue il y a ${age} min. Propose l'échange depuis le profil de l'ami.`));
-    for (const friend of list) {
-      body.append(h("details", {},
-        h("summary", {},
-          h("a", { href: `/profile/${encodeURIComponent(friend.name)}`, on: { click: (e) => e.stopPropagation() } }, friend.name),
-          ` · ${friend.cards.length}`),
-        h("ul", {}, friend.cards.map((c) => h("li", {},
-          c.title, " ", ...c.rarities.map((r) => h("span", { className: "wme-rar", "data-r": r }, r)))))));
-    }
-    return body;
+        "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté. " +
+        "Lecture seule : l'extension ne mise et ne vend jamais."));
   }
 
   // ------------------------------------------------------------------ démarrage
@@ -370,12 +305,11 @@
 
   const ready = (async () => {
     settings = { ...settings, ...(await store.get("settings", {})) };
-    prices = await store.get("prices", {});
+    prices = await store.get(PRICES_KEY, {});
     for (const [id, entry] of Object.entries(prices)) {
       if (!entry || Date.now() - entry.at > PRICE_KEEP_MS) delete prices[id];
     }
-    const savedFriends = await store.get("friends", null);
-    if (savedFriends && Date.now() - savedFriends.at < FRIENDS_TTL_MS) friends = savedFriends;
+    chrome.storage.local.remove(["friends", "prices"]); // 0.1 : liste des amis, et cotes calculées autrement
     buildPanel();
     scheduleBadges();
   })();

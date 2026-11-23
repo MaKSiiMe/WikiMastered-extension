@@ -3,30 +3,26 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const WME = require("../src/lib.js");
 
-test("la cote suit le calcul du bot : semaines récentes jusqu'à 10 ventes", () => {
+test("le prix moyen est celui de la dernière semaine avec des ventes, comme sur le site", () => {
   const history = {
     by_rarity: {
       L: { weekly: [
+        { start: "2026-11-09", avg: 8000, count: 4 },
         { start: "2026-11-16", avg: 9000, count: 8 },
-        { start: "2026-11-09", avg: 8000, count: 4 },  // 12 ventes atteintes ici : on s'arrête
-        { start: "2026-11-02", avg: 1, count: 50 },
+        { start: "2026-11-23", avg: 0, count: 0 }, // semaine en cours sans vente : prix reporté
       ] },
-      SR: { weekly: [{ start: "2026-11-16", avg: 0, count: 3 }, { start: "2026-11-09", avg: 300, count: 0 }] },
+      SR: { weekly: [{ start: "2026-11-16", avg: 0, count: 3 }] },
       XX: { weekly: [{ start: "2026-11-16", avg: 5, count: 5 }] },
     },
   };
-  const q = WME.quotes(history);
-  assert.deepEqual(Object.keys(q), ["L"]); // SR sans vente valable, XX inconnue
-  assert.equal(Math.round(q.L.avg), Math.round((9000 * 8 + 8000 * 4) / 12));
-  assert.equal(q.L.count, 12);
+  assert.deepEqual(WME.quotes(history), { L: { avg: 9000, count: 8, week: "2026-11-16" } }); // SR sans prix, XX inconnue
   assert.deepEqual(WME.quotes(null), {});
 });
 
-test("au plus 4 semaines pour une carte peu vendue", () => {
-  const weekly = [1, 2, 3, 4, 5].map((i) => ({ start: `2026-10-0${i}`, avg: 100 * i, count: 1 }));
-  const q = WME.quotes({ by_rarity: { R: { weekly } } });
-  assert.equal(q.R.count, 4);
-  assert.equal(q.R.avg, (200 + 300 + 400 + 500) / 4); // la plus ancienne (100) est écartée
+test("semaine en cours : son lundi, en UTC", () => {
+  assert.equal(WME.currentWeek(new Date("2026-11-23T10:00:00Z")), "2026-11-23"); // lundi
+  assert.equal(WME.currentWeek(new Date("2026-11-29T23:00:00Z")), "2026-11-23"); // dimanche
+  assert.equal(WME.currentWeek(new Date("2026-11-30T00:30:00Z")), "2026-11-30");
 });
 
 test("les cartes sont lues dans toutes les réponses du site", () => {
@@ -44,23 +40,6 @@ test("les cartes sont lues dans toutes les réponses du site", () => {
     ["4", "Rome", "PC", false],
   ]);
   assert.deepEqual(WME.cardsIn("pas un objet"), []);
-});
-
-test("liste de souhaits chez les amis : classés par nombre de cartes, raretés filtrées", () => {
-  const owner = (username, ...rarities) => ({ id: "u-" + username, username, rarities });
-  const pages = [
-    {
-      cards: [{ id: "a", wikipedia_title: "Napoléon" }, { id: "b", wikipedia_title: "Lyon" }],
-      friendOwners: { a: [owner("alice", "sr", "L"), owner("bob", "C")], b: [owner("alice", "R")] },
-    },
-    { cards: [{ id: "a", wikipedia_title: "Napoléon" }], friendOwners: { a: [owner("carl", "UR")] } }, // déjà vue
-  ];
-  assert.deepEqual(WME.friendsFromCatalog(pages), [
-    { name: "alice", cards: [{ id: "a", title: "Napoléon", rarities: ["L", "SR"] }, { id: "b", title: "Lyon", rarities: ["R"] }] },
-    { name: "bob", cards: [{ id: "a", title: "Napoléon", rarities: ["C"] }] },
-  ]);
-  const high = WME.friendsFromCatalog(pages, "SR");
-  assert.deepEqual(high.map((f) => [f.name, f.cards.map((c) => c.rarities)]), [["alice", [["L", "SR"]]]]);
 });
 
 test("montants courts pour les badges", () => {

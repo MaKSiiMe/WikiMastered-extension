@@ -60,8 +60,7 @@
   padding: 8px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.wme-panel header nav { display: flex; gap: 4px; flex: 1; }
-.wme-panel header nav button, .wme-x {
+.wme-x {
   border: 1px solid transparent;
   background: none;
   color: #9ca3af;
@@ -69,18 +68,12 @@
   padding: 2px 8px;
   cursor: pointer;
   font: inherit;
+  margin-left: auto;
 }
-.wme-panel header nav button.on { color: #fde68a; border-color: rgba(253, 230, 138, 0.4); }
 
 .wme-body { padding: 10px 12px; overflow-y: auto; }
 .wme-body p { margin: 0 0 6px; }
-.wme-body ul { margin: 4px 0 8px; padding-left: 18px; }
-.wme-body details { padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-.wme-body summary { cursor: pointer; }
-.wme-body a { color: #93c5fd; }
 .wme-muted { color: #9ca3af; font-size: 12px; }
-.wme-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
-.wme-body select { background: #1f1f2a; color: inherit; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; }
 
 .wme-btn {
   margin: 4px 0 8px;
@@ -92,20 +85,3 @@
   font: inherit;
   cursor: pointer;
 }
-
-.wme-rar {
-  display: inline-block;
-  margin-left: 3px;
-  padding: 0 5px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  background: rgba(255, 255, 255, 0.08);
-}
-/* Couleurs des raretés, les mêmes que le site et le bot. */
-.wme-rar[data-r="L"] { color: #ffd700; }
-.wme-rar[data-r="UR"] { color: #ff8c00; }
-.wme-rar[data-r="SR"] { color: #ff69b4; }
-.wme-rar[data-r="R"] { color: #a855f7; }
-.wme-rar[data-r="PC"] { color: #3b82f6; }
-.wme-rar[data-r="C"] { color: #22c55e; }

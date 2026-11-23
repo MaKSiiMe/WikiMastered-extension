@@ -1,8 +1,8 @@
 {
   "name": "wikimastered-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Extension de navigateur en lecture seule pour Wiki Masters : cotes sur les cartes, liste de souhaits chez les amis.",
+  "description": "Extension de navigateur en lecture seule pour Wiki Masters : le prix moyen de chaque carte sur la page.",
   "scripts": {
     "test": "node --test",
     "build": "node tools/build.js"
