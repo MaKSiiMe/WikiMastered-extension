@@ -20,13 +20,23 @@ Le site ne donne pas de prix dans sa liste de cartes. Sur la fiche d'une carte, 
 
 ### Chrome, Brave, Edge, Opera
 
-1. Télécharge le dépôt (bouton **Code → Download ZIP**) et dézippe-le, ou clone-le avec `git clone`.
+1. Clone le dépôt une fois pour toutes : `git clone https://github.com/MaKSiiMe/WikiMastered-extension.git` (ou **Code → Download ZIP**, mais il faudra alors tout retélécharger à chaque version).
 2. Ouvre `chrome://extensions` (ou `brave://extensions`, `edge://extensions`, `opera://extensions`).
 3. Active le **Mode développeur** (en haut à droite).
 4. **Charger l'extension non empaquetée** et choisis le dossier qui contient `manifest.json`.
 5. Ouvre ou recharge [ta collection](https://www.wiki-masters.com/collection).
 
 Chrome affiche un avertissement « Unrecognized manifest key 'browser_specific_settings' » : c'est la ligne réservée à Firefox, sans effet sur Chrome.
+
+### Mettre à jour (Chrome)
+
+Chrome lit l'extension directement dans le dossier choisi : pas besoin de la supprimer.
+
+1. Récupère la nouvelle version dans le dossier : `git pull`.
+2. Dans `chrome://extensions`, clique sur ↻ sous l'extension.
+3. Recharge la page du site.
+
+Le numéro de version s'affiche en haut du panneau (bouton **WM**) : c'est le moyen de vérifier que la bonne version tourne.
 
 ### Firefox (128 ou plus)
 
