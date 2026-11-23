@@ -92,8 +92,8 @@ Après une modification, clique sur ↻ dans `chrome://extensions` (ou **Recharg
 
 ## Limites connues
 
-- **Shiny** : l'historique des prix du site ne les distingue pas ; le badge d'une carte shiny montre le prix de la carte ordinaire, comme le site.
-- **Rareté d'une tuile** : lue dans le texte de la tuile (« SR », « L »…). Si elle n'y est pas écrite et que la carte existe dans plusieurs raretés sur la page, le badge affiche `?`.
+- **Shiny** : le site ne donne aucun prix propre aux shiny (son historique les mélange aux cartes ordinaires). Le badge d'une carte shiny affiche `✦ ?`, avec le prix de la carte ordinaire dans l'infobulle. Le bot relève les vraies ventes shiny : la v2 (synchro avec le bot) pourra les afficher.
+- **Rareté d'une tuile** : lue sur le badge de rareté de la carte (« SR », « L✦ »…), dont le badge de prix reprend le style. Sans badge de rareté, le prix prend un style neutre et la rareté vient des données du site ; `?` si la carte y existe en plusieurs raretés.
 - **v0** : testée sur une copie simulée du site, pas encore sur le vrai. Si un badge manque ou se pose au mauvais endroit, ouvre une issue avec une capture.
 
 ## Licence

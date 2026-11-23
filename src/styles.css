@@ -21,8 +21,10 @@
   pointer-events: auto;
   white-space: nowrap;
 }
-.wme-badge[data-state="wait"] { color: #9ca3af; border-color: rgba(156, 163, 175, 0.4); }
-.wme-badge[data-state="none"] { color: #6b7280; border-color: rgba(107, 114, 128, 0.4); }
+.wme-badge[data-state="wait"]:not([data-styled]) { color: #9ca3af; border-color: rgba(156, 163, 175, 0.4); }
+.wme-badge[data-state="none"]:not([data-styled]) { color: #6b7280; border-color: rgba(107, 114, 128, 0.4); }
+/* Badge au style de la rareté : estompé tant que le prix n'est pas connu. */
+.wme-badge[data-styled][data-state="wait"], .wme-badge[data-styled][data-state="none"] { opacity: 0.6; }
 
 #wme-root {
   position: fixed;
