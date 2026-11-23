@@ -121,12 +121,19 @@
   // contient une image et a des frères (une grille). Idée reprise de wm-qol (Kitsoune), qui résiste aux mises à jour.
   const OURS = "#wme-root, .wme-badge";
 
-  function inDialog(el) {
+  // Fenêtre posée par-dessus la page (la fiche d'une carte) : pas de badge, le site y montre déjà le prix. Elle se
+  // reconnaît à son rôle de dialogue, ou à un parent en position fixe (le site n'annonce pas toujours le rôle).
+  function inOverlay(el) {
     for (let cur = el; cur && cur !== document.body; cur = cur.parentElement) {
       if (cur.getAttribute("role") === "dialog" || cur.getAttribute("aria-modal") === "true") return true;
+      if (getComputedStyle(cur).position === "fixed") return true;
     }
     return false;
   }
+
+  // Taille minimale de l'illustration d'une carte : les petites images (icônes des étiquettes…) ne comptent pas.
+  const ART_MIN_PX = 60;
+  const hasArt = (el) => [...el.querySelectorAll("img")].some((img) => img.getBoundingClientRect().width >= ART_MIN_PX);
 
   function tileRarity(tile, entry) {
     // Une feuille de texte « SR », « L »… dans la tuile : la rareté de cet exemplaire.
@@ -138,6 +145,8 @@
     return entry.rarities.size === 1 ? [...entry.rarities][0] : "";
   }
 
+  // La carte d'un titre : son plus petit parent qui contient aussi l'illustration. C'est l'élément que le site anime au
+  // survol (il grandit, se soulève) : un badge posé dedans suit l'animation.
   function findTiles() {
     const tiles = new Map();
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -145,16 +154,16 @@
       const el = node.parentElement;
       if (!el || el.closest(OURS)) continue;
       const entry = seen.get(norm(node.nodeValue));
-      if (!entry || inDialog(el)) continue;
+      if (!entry || inOverlay(el)) continue;
       let cur = el;
-      for (let i = 0; i < 8 && cur && cur.parentElement; i++, cur = cur.parentElement) {
-        if (cur.parentElement.children.length >= 3 && cur.querySelector("img")) {
+      for (let i = 0; i < 10 && cur && cur !== document.body; i++, cur = cur.parentElement) {
+        if (hasArt(cur)) {
           if (!tiles.has(cur)) tiles.set(cur, entry);
           break;
         }
       }
     }
-    // Une tuile qui en contient une autre n'est pas une carte mais la grille : on garde les plus petites.
+    // Une « carte » qui en contient une autre est en fait la grille (titre sans illustration à lui) : on l'écarte.
     return [...tiles].filter(([t]) => ![...tiles.keys()].some((o) => o !== t && t.contains(o)));
   }
 
