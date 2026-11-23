@@ -50,7 +50,7 @@
     const response = await siteFetch(location.origin + path, { credentials: "include" });
     if (response.status === 429) {
       pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
-      throw new Error("trop de requêtes (429), pause d'une minute");
+      throw Object.assign(new Error("trop de requêtes (429), pause d'une minute"), { rateLimited: true });
     }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
@@ -79,6 +79,10 @@
           const history = await get(`/api/marketplace/cards/${encodeURIComponent(id)}/price-history`);
           prices[id] = { at: Date.now(), q: quotes(history) };
         } catch (error) {
+          if (error.rateLimited) {
+            queue.add(id); // le site demande de ralentir : la carte attend la fin de la pause, ce n'est pas un échec
+            continue;
+          }
           prices[id] = { at: Date.now(), q: {}, failed: String(error.message || error) };
         }
         savePricesSoon();
@@ -135,14 +139,37 @@
   const ART_MIN_PX = 60;
   const hasArt = (el) => [...el.querySelectorAll("img")].some((img) => img.getBoundingClientRect().width >= ART_MIN_PX);
 
+  // Le badge de rareté de la tuile : une feuille de texte « SR », « L », « L✦ » (shiny)… C'est la rareté de CET
+  // exemplaire, et son style sert de modèle au badge de prix. -> { rarity, shiny, el } ; el = null si introuvable.
+  const SHINY_MARK = /[✦✧✨★☆⭐+]/;
   function tileRarity(tile, entry) {
-    // Une feuille de texte « SR », « L »… dans la tuile : la rareté de cet exemplaire.
     for (const el of tile.querySelectorAll("*")) {
       if (el.children.length || el.closest(OURS)) continue;
-      const text = el.textContent.trim().toUpperCase();
-      if (rank(text) >= 0 && (!entry.rarities.size || entry.rarities.has(text))) return text;
+      const raw = el.textContent.trim();
+      const code = raw.toUpperCase().replace(/[^A-Z]/g, "");
+      if (raw.length <= 4 && rank(code) >= 0) return { rarity: code, shiny: SHINY_MARK.test(raw), el };
     }
-    return entry.rarities.size === 1 ? [...entry.rarities][0] : "";
+    return { rarity: entry.rarities.size === 1 ? [...entry.rarities][0] : "", shiny: false, el: null };
+  }
+
+  // Styles recopiés du badge de rareté : le prix a la même allure (couleurs, bordure, police, taille) que le « SR »
+  // ou le « L » d'à côté, sur les petites cartes comme sur les grandes.
+  const COPIED_STYLES = ["background-color", "background-image", "color", "border-top-width", "border-top-style",
+    "border-top-color", "border-right-width", "border-right-style", "border-right-color", "border-bottom-width",
+    "border-bottom-style", "border-bottom-color", "border-left-width", "border-left-style", "border-left-color",
+    "border-radius", "font-family", "font-size", "font-weight", "line-height", "letter-spacing", "padding-top",
+    "padding-right", "padding-bottom", "padding-left", "box-shadow", "text-shadow", "height", "box-sizing"];
+
+  function copyRarityStyle(badgeEl, rarityEl, tile) {
+    const from = getComputedStyle(rarityEl);
+    for (const prop of COPIED_STYLES) badgeEl.style.setProperty(prop, from.getPropertyValue(prop));
+    badgeEl.style.display = "inline-flex";
+    badgeEl.style.alignItems = "center";
+    // Même hauteur que le badge de rareté. Les positions mesurées tiennent compte d'un agrandissement au survol : on
+    // les ramène à la taille normale de la carte (offsetWidth ignore cet agrandissement).
+    const scale = tile.getBoundingClientRect().width / (tile.offsetWidth || 1) || 1;
+    const top = (rarityEl.getBoundingClientRect().top - tile.getBoundingClientRect().top) / scale - tile.clientTop;
+    badgeEl.style.top = `${Math.max(0, top).toFixed(1)}px`;
   }
 
   // La carte d'un titre : son plus petit parent qui contient aussi l'illustration. C'est l'élément que le site anime au
@@ -173,21 +200,26 @@
 
   function badge(tile, entry) {
     want(entry.id);
-    const rarity = tileRarity(tile, entry);
+    const { rarity, shiny, el: rarityEl } = tileRarity(tile, entry);
     const entryPrices = prices[entry.id];
     let text = "…";
     let tip = "Prix en cours de lecture";
     let state = "wait";
+    let value = 0;
     if (entryPrices && fresh(entryPrices)) {
       const q = entryPrices.q[rarity];
       if (entryPrices.failed) {
         [text, tip, state] = ["?", `Prix illisible : ${entryPrices.failed}`, "none"];
+      } else if (q && shiny) {
+        // Le site ne donne aucun prix propre aux shiny : afficher celui de la carte ordinaire tromperait.
+        [text, state] = ["✦ ?", "none"];
+        tip = `${entry.title} ${rarity} shiny : le site ne donne pas de prix pour les shiny.\n` +
+          `${rarity} ordinaire : ≈ ${wb(q.avg)} (${q.count} vente(s)).`;
       } else if (q) {
         const age = Math.round((Date.now() - entryPrices.at) / 60e3);
         const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
-        [text, state] = [`≈ ${wb(q.avg)}`, "ok"];
-        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). Relevé il y a ${age} min.\n` +
-          "Shiny : le site ne les distingue pas.";
+        [text, state, value] = [`≈ ${wb(q.avg)}`, "ok", q.avg];
+        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). Relevé il y a ${age} min.`;
       } else {
         const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
           .map(([r, v]) => `${r} ≈ ${wb(v.avg)}`).join(", ");
@@ -203,12 +235,19 @@
       if (getComputedStyle(tile).position === "static") tile.style.position = "relative";
       tile.append(el);
     }
-    const size = `${badgeFontPx(tile).toFixed(1)}px`;
-    if (el.style.fontSize !== size) el.style.fontSize = size;
+    if (rarityEl) {
+      copyRarityStyle(el, rarityEl, tile);
+      el.dataset.styled = "rarity";
+    } else {
+      // Pas de badge de rareté à imiter : style par défaut (styles.css), à la taille de la carte.
+      const size = `${badgeFontPx(tile).toFixed(1)}px`;
+      if (el.style.fontSize !== size) el.style.fontSize = size;
+      delete el.dataset.styled;
+    }
     if (el.textContent !== text) el.textContent = text;
     el.title = tip;
     el.dataset.state = state;
-    return state === "ok" ? prices[entry.id].q[rarity].avg : 0;
+    return value;
   }
 
   let badgeTimer = null;
