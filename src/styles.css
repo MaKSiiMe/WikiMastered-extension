@@ -1,7 +1,8 @@
 /* Tout est préfixé « wme- » : aucun risque de toucher aux styles du site ou d'une autre extension. */
 
-/* En haut au centre de la carte : les coins sont pris par la rareté (gauche) et l'étoile des favoris (droite).
-   z-index élevé : l'image et l'étoile du site sont posées par-dessus le reste de la carte. */
+/* En haut au centre de la carte (à la hauteur du badge de rareté quand il y en a un) : les coins sont pris par la
+   rareté (gauche) et l'étoile des favoris (droite). z-index élevé : l'image et l'étoile du site sont posées
+   par-dessus le reste de la carte. */
 .wme-badge {
   position: absolute;
   top: 0.5em;
@@ -30,71 +31,16 @@
 /* Badge au style de la rareté : estompé tant que le prix n'est pas connu. */
 .wme-badge[data-styled][data-state="wait"], .wme-badge[data-styled][data-state="none"] { opacity: 0.6; }
 
-#wme-root {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 2147483000;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  font: 13px/1.45 system-ui, sans-serif;
-  color: #e5e7eb;
-}
-
-.wme-fab {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: #111118;
+/* Bilan d'un échange, en tête du détail de l'échange. */
+.wme-trade {
+  flex-basis: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(253, 230, 138, 0.35);
+  background: rgba(15, 15, 20, 0.85);
   color: #fde68a;
-  font: 800 13px system-ui, sans-serif;
-  cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-}
-
-.wme-panel {
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(70vh, 560px);
-  display: flex;
-  flex-direction: column;
-  background: #111118;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
-  overflow: hidden;
-}
-.wme-panel header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.wme-x {
-  border: 1px solid transparent;
-  background: none;
-  color: #9ca3af;
-  border-radius: 6px;
-  padding: 2px 8px;
-  cursor: pointer;
-  font: inherit;
-  margin-left: auto;
-}
-
-.wme-body { padding: 10px 12px; overflow-y: auto; }
-.wme-body p { margin: 0 0 6px; }
-.wme-muted { color: #9ca3af; font-size: 12px; }
-
-.wme-btn {
-  margin: 4px 0 8px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(253, 230, 138, 0.4);
-  background: rgba(253, 230, 138, 0.08);
-  color: #fde68a;
-  font: inherit;
-  cursor: pointer;
+  font: 600 12px/1.45 system-ui, sans-serif;
 }
