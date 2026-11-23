@@ -1,6 +1,6 @@
 # WikiMastered – Prix des cartes
 
-Extension de navigateur pour [Wiki Masters](https://www.wiki-masters.com/), **en lecture seule** : un badge `≈ 1 250` sur chaque carte affichée (ta collection, le marché, les vitrines, le profil d'un ami), à sa taille. C'est le **prix moyen du site**, le même chiffre que sur la fiche de la carte (« Prix moyen de la semaine », ou « Dernier prix moyen connu » si la semaine n'a pas encore de vente), dans la rareté de la carte.
+Extension de navigateur pour [Wiki Masters](https://www.wiki-masters.com/), **en lecture seule** : un badge `≈ 1 250` sur chaque carte affichée (ta collection, le marché, le détail d'un échange…), collé à droite du badge de rareté et dans son style. Sur un profil, le prix n'apparaît qu'au survol de la carte : une vitrine se regarde. C'est le **prix moyen du site**, le même chiffre que sur la fiche de la carte (« Prix moyen de la semaine », ou « Dernier prix moyen connu » si la semaine n'a pas encore de vente), dans la rareté de la carte.
 
 Elle ne clique, ne mise, ne vend et n'étiquette jamais rien. Elle fait seulement des lectures, comme le site quand tu ouvres la fiche d'une carte : une à la fois, au moins une demi-seconde d'écart, et une pause d'une minute si le site dit « trop de requêtes ». Les prix sont gardés 6 h dans le navigateur.
 

@@ -23,6 +23,10 @@
 }
 .wme-badge[data-state="wait"]:not([data-styled]) { color: #9ca3af; border-color: rgba(156, 163, 175, 0.4); }
 .wme-badge[data-state="none"]:not([data-styled]) { color: #6b7280; border-color: rgba(107, 114, 128, 0.4); }
+/* Profils (vitrines) : le prix n'apparaît qu'au survol de la carte. */
+.wme-hover-only .wme-badge { opacity: 0 !important; transition: opacity 0.15s; }
+.wme-hover-only :hover > .wme-badge { opacity: 1 !important; }
+
 /* Badge au style de la rareté : estompé tant que le prix n'est pas connu. */
 .wme-badge[data-styled][data-state="wait"], .wme-badge[data-styled][data-state="none"] { opacity: 0.6; }
 
