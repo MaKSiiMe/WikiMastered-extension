@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WikiMastered – Prix des cartes",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Wiki Masters en lecture seule : le prix moyen de chaque carte affiché sur la page, le même que sur sa fiche.",
   "permissions": ["storage"],
   "host_permissions": ["https://www.wiki-masters.com/*", "https://wiki-masters.com/*"],

@@ -4,13 +4,16 @@
    z-index élevé : l'image et l'étoile du site sont posées par-dessus le reste de la carte. */
 .wme-badge {
   position: absolute;
-  top: 6px;
+  top: 0.5em;
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font: 700 11px/1.5 system-ui, sans-serif;
+  padding: 0.1em 0.55em;
+  border-radius: 0.55em;
+  font-family: system-ui, sans-serif;
+  font-size: 11px; /* remplacé par src/content.js selon la largeur de la carte */
+  font-weight: 700;
+  line-height: 1.5;
   color: #fde68a;
   background: #0f0f14;
   border: 1px solid rgba(253, 230, 138, 0.55);
