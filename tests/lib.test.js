@@ -55,3 +55,26 @@ test("montants courts pour les badges", () => {
   assert.equal(WME.wb(12500).replace(/\s/g, " "), "12,5 k");
   assert.equal(WME.wb(NaN), "?");
 });
+
+test("un échange : les cartes de chaque côté et son bilan", () => {
+  const card = (id, title, rarity) => ({ id, wikipedia_title: title, rarity });
+  const [trade] = WME.tradesIn({ trades: [{
+    id: "t1", initiator_id: "a", recipient_id: "b", initiator: { username: "Alice" }, recipient: { username: "Bob" },
+    initiator_wikibidous: 300, recipient_wikibidous: 0,
+    items: [
+      { offered_by: "a", card: card("1", "Lyon", "SR"), snapshot_rarity: "UR" },
+      { offered_by: "b", card: card("2", "Paris", "L"), snapshot_rarity: "L" },
+      { offered_by: "b", card: card("3", "Rome", "L"), snapshot_rarity: "L", is_shiny: true },
+      { offered_by: "b", card_id: "4" }, // carte sans fiche : ignorée
+    ],
+  }] });
+  assert.equal(trade.id, "t1");
+  assert.deepEqual(trade.sides.map((s) => [s.name, s.wb, s.items.map((i) => `${i.title} ${i.rarity}${i.shiny ? "✦" : ""}`)]), [
+    ["Alice", 300, ["Lyon UR"]],
+    ["Bob", 0, ["Paris L", "Rome L✦"]],
+  ]);
+  const prices = { 1: 2000, 2: 5000 };
+  const balance = WME.tradeBalance(trade, (item) => (item.shiny ? null : prices[item.id] ?? null));
+  assert.deepEqual(balance.sides.map((s) => [s.total, s.missing]), [[2300, 0], [5000, 1]]);
+  assert.equal(balance.gain, 2700); // Alice reçoit 5 000 (sans le shiny) et donne 2 300
+});
