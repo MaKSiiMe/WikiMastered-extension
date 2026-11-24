@@ -202,6 +202,8 @@ async function packsView() {
   const state = await ask("state");
   if (!state || state.ok === false) return error(state || {});
   return [
+    lastPack(state.pulls && state.pulls.last),
+    todayRates(state.pulls && state.pulls.today),
     pullsRecap(state.pulls) || h("p", { className: "muted" }, "Aucun paquet ouvert noté pour l'instant."),
     h("h3", {}, "Automatisation par clic"),
     h("p", { className: "muted" }, "Elle ne change jamais de page sous tes yeux : elle attend 5 min sans clic, frappe ni défilement. Les " +
@@ -210,6 +212,28 @@ async function packsView() {
     toggle(state.autoUnblockMarket, "autoUnblockMarket", "Tentative de déblocage du marché (/collection) : met une vraie enchère"),
     clickStatus(state),
   ];
+}
+
+// Le dernier paquet (#23) : chaque carte, nouvelle ou doublon, son prix, et la valeur du paquet.
+function lastPack(last) {
+  if (!last) return null;
+  const tag = (c) => (c.isNew === true ? "Nouvelle" : c.isNew === false ? "Doublon" : "");
+  return h("div", { className: "box" },
+    h("h3", {}, `Dernier paquet · ${time(last.at)}${last.auto ? " (auto)" : ""} · ≈ ${wb(last.value)} WB`),
+    h("table", {}, ...last.cards.map((c) => h("tr", {},
+      h("td", {}, c.title), h("td", {}, c.rarity + (c.shiny ? " ✦" : "")), h("td", { className: c.isNew ? "new" : "muted" }, tag(c)),
+      h("td", { className: "num" }, Number.isFinite(c.price) ? wb(c.price) : "—")))),
+    (last.fresh || last.doubles) ? h("p", { className: "muted" }, `${last.fresh} nouvelle(s) · ${last.doubles} doublon(s)`) : null);
+}
+
+// Taux de tirage du jour (#24), remis à zéro à minuit (heure du navigateur).
+function todayRates(today) {
+  if (!today || !today.packs) return null;
+  const order = (r) => (WME.rank(r) < 0 ? -1 : WME.rank(r));
+  return h("div", { className: "box" },
+    h("h3", {}, `Aujourd'hui · ${today.packs} paquet(s) · ${today.cards} carte(s)`),
+    h("p", { className: "muted" }, Object.entries(today.byRarity).sort(([a], [b]) => order(b) - order(a))
+      .map(([r, n]) => `${r} ${n} (${(n / today.cards * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %)`).join(" · ")));
 }
 
 function toggle(checked, type, label) {

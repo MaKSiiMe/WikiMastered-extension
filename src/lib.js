@@ -265,11 +265,16 @@ const WME = (() => {
    */
   const emptyPullLog = () => ({ titles: {}, packs: [] });
 
-  /** Ajoute un paquet ({ at, auto, cards: [{ id, title, rarity, shiny }] }) ; au-delà de max, oublie les plus anciens. */
+  /**
+   * Ajoute un paquet ({ at, auto, cards: [{ id, title, rarity, shiny, isNew }] }) ; au-delà de max, oublie les plus
+   * anciens. isNew : true si on n'avait pas la carte avant le paquet, false si c'est un doublon, absent si on ne savait
+   * pas. Une carte du journal : [id, rareté, shiny (0|1), prix (null tant qu'inconnu), nouvelle (1|0|null)].
+   */
   function addPull(log, { at, auto, cards }, max) {
     const titles = { ...log.titles };
     for (const c of cards) titles[c.id] = c.title;
-    let packs = [...log.packs, { at, auto: Boolean(auto), cards: cards.map((c) => [c.id, c.rarity, c.shiny ? 1 : 0, null]) }];
+    let packs = [...log.packs, { at, auto: Boolean(auto),
+      cards: cards.map((c) => [c.id, c.rarity, c.shiny ? 1 : 0, null, c.isNew === true ? 1 : c.isNew === false ? 0 : null]) }];
     if (packs.length > max) {
       packs = packs.slice(-max);
       const kept = new Set(packs.flatMap((pack) => pack.cards.map(([id]) => id)));
@@ -278,9 +283,11 @@ const WME = (() => {
     return { titles, packs };
   }
 
-  /** Une carte du journal -> { id, title, rarity, shiny, price } (price : null tant qu'inconnu). */
-  const pulledCard = (log, [id, rarity, shiny, price]) =>
-    ({ id, title: log.titles[id] || id, rarity, shiny: Boolean(shiny), price: Number.isFinite(price) ? price : null });
+  /** Une carte du journal -> { id, title, rarity, shiny, price, isNew } (price : null tant qu'inconnu ; isNew : null si inconnu). */
+  const pulledCard = (log, [id, rarity, shiny, price, isNew]) => ({
+    id, title: log.titles[id] || id, rarity, shiny: Boolean(shiny), price: Number.isFinite(price) ? price : null,
+    isNew: isNew === 1 ? true : isNew === 0 ? false : null,
+  });
 
   /**
    * Fige dans le journal le prix de chaque carte tirée dès que `priceOf(card)` le connaît : le récap garde la valeur
@@ -337,7 +344,7 @@ const WME = (() => {
    *      puis les raretés inconnues ; journal + earlier), shiny, value, missing (cartes sans prix), best (les 3 cartes
    *      les plus chères, avec leur price) }
    */
-  function pullRecap(log, priceOf, earlier = {}) {
+  function pullRecap(log, priceOf, earlier = {}, now = Date.now()) {
     const byRarity = {};
     for (const [rarity, n] of Object.entries(earlier)) byRarity[recapRarity(rarity)] = (byRarity[recapRarity(rarity)] || 0) + n;
     const priced = [];
@@ -376,6 +383,39 @@ const WME = (() => {
       value,
       missing,
       best: priced.sort((a, b) => b.price - a.price).slice(0, 3),
+      today: pullsOfDay(log, now),
+      last: lastPull(log, priceOf),
+    };
+  }
+
+  /** Paquets du jour (jour local du navigateur, remis à zéro à minuit) : { packs, cards, byRarity } (#24). */
+  function pullsOfDay(log, now = Date.now()) {
+    const day = new Date(now).toDateString();
+    const out = { packs: 0, cards: 0, byRarity: {} };
+    for (const pack of log.packs) {
+      if (new Date(pack.at).toDateString() !== day) continue;
+      out.packs += 1;
+      for (const [, rarity] of pack.cards) {
+        out.cards += 1;
+        out.byRarity[recapRarity(rarity)] = (out.byRarity[recapRarity(rarity)] || 0) + 1;
+      }
+    }
+    return out;
+  }
+
+  /** Le dernier paquet ouvert (#23) : { at, auto, cards: [{ …, price }], value, fresh (nouvelles), doubles } ou null. */
+  function lastPull(log, priceOf) {
+    const pack = log.packs[log.packs.length - 1];
+    if (!pack) return null;
+    const cards = pack.cards.map((raw) => {
+      const c = pulledCard(log, raw);
+      return { ...c, price: c.price ?? priceOf(c) };
+    });
+    return {
+      at: pack.at, auto: pack.auto, cards,
+      value: cards.reduce((sum, c) => sum + (Number.isFinite(c.price) ? c.price : 0), 0),
+      fresh: cards.filter((c) => c.isNew === true).length,
+      doubles: cards.filter((c) => c.isNew === false).length,
     };
   }
 
