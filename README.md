@@ -76,6 +76,7 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
 
     Tri par valeur ou par rareté.
   - **Souhaits** : ta liste de souhaits du site, chaque carte au prix le plus bas connu (toutes raretés) et les autres raretés, et le coût total.
+  - **Réglages** : badges, « ✓ », seuil de fiabilité, ordre de la collection, prix partagés ; taille des données gardées, boutons pour vider les caches, sauvegarde et restauration en JSON (réglages, récap des paquets, courbe de valeur).
   - **Doublons** : chaque carte possédée en plusieurs exemplaires, l'exemplaire gardé (le plus rare), ceux en trop et ce qu'ils valent, les favoris (verrouillés par le site) signalés.
   - Avec les prix partagés, le panneau se synchronise avec le serveur par différence (au plus toutes les 5 min) : il demande ce qui a été lu depuis la dernière fois, puis seulement les prix des cartes de ta collection et de tes souhaits qu'il n'a pas. C'est par là qu'arrivent les lectures de ton bot.
   - La collection est lue dans la base du site, comme le site lui-même (une quinzaine de requêtes pour 15 000 cartes, avec ta session ; aucune route de prix), puis gardée 12 h. Le panneau ne lit rien lui-même : il passe par l'onglet du site ouvert.
