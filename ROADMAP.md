@@ -23,17 +23,17 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] Médiane et fourchette (Q1-Q3) quand assez de ventes, en plus du prix moyen du site. (henchoznoe) [#15](https://github.com/MaKSiiMe/WikiMastered-extension/issues/15) (0.10.0)
 - [x] Marché : badge « bonne affaire » / « surcoté » (mise actuelle comparée à la cote). (Toolbox, Instant Price Check) [#16](https://github.com/MaKSiiMe/WikiMastered-extension/issues/16) (0.9.4)
 - [x] Ancienneté d'un prix visible, rafraîchissement ciblé d'une carte (↻). (henchoznoe, better-wiki-master) [#17](https://github.com/MaKSiiMe/WikiMastered-extension/issues/17) (0.10.0)
-- [x] Fiche d'une carte : ventes sur 12 semaines, fourchette sur 4 semaines, variation, possession. (Toolbox) [#47](https://github.com/MaKSiiMe/WikiMastered-extension/issues/47) (0.6.3)
+- [x] ~~Fiche d'une carte : ventes sur 12 semaines, fourchette sur 4 semaines, variation, possession.~~ Retiré en 0.12.0 : le site affiche déjà tout ça. [#47](https://github.com/MaKSiiMe/WikiMastered-extension/issues/47)
 
 ### Collection
 - [x] Tableau de bord : valeur totale et par rareté, cartes les plus chères, doublons, valeur du compte dans le temps (une mesure par jour). [#18](https://github.com/MaKSiiMe/WikiMastered-extension/issues/18) (0.7.0)
 - [x] Filtres cumulables qui manquent au site : doublons, sans image, GIF, étiquettes (avec / sans / l'une de), tranche de prix ; tri par valeur. (Toolbox) [#19](https://github.com/MaKSiiMe/WikiMastered-extension/issues/19) (0.9.0)
-- [x] Filtres par étiquette : avec, sans, l'une des miennes. [#63](https://github.com/MaKSiiMe/WikiMastered-extension/issues/63) (0.10.1)
-- [x] Familles à compléter : cartes manquantes, leur prix, ajout à la liste de souhaits en un clic. (Toolbox, Prix moyen collection) [#20](https://github.com/MaKSiiMe/WikiMastered-extension/issues/20) (0.11.0)
+- [x] Filtres par étiquette : plusieurs à la fois, ou sans étiquette, les miennes ou celles d'un ami (0.12.0). [#63](https://github.com/MaKSiiMe/WikiMastered-extension/issues/63) (0.10.1)
+- [x] Familles à compléter : cartes manquantes, leur prix, ajout depuis une catégorie Wikipédia (0.12.0), ajout à la liste de souhaits en un clic. (Toolbox, Prix moyen collection) [#20](https://github.com/MaKSiiMe/WikiMastered-extension/issues/20) (0.11.0)
 - [x] Liste de souhaits avec le prix de chaque carte et le coût total. [#21](https://github.com/MaKSiiMe/WikiMastered-extension/issues/21) (0.9.1)
-- [x] Repérage des doublons et de ce qu'ils valent. (Mes doublons, Toolbox) [#22](https://github.com/MaKSiiMe/WikiMastered-extension/issues/22) (0.7.0)
-- [x] Pastilles « Possédée ✓ » / « Nouvelle » sur le marché, les profils et le catalogue. (Toolbox) [#45](https://github.com/MaKSiiMe/WikiMastered-extension/issues/45) (0.6.2)
-- [x] Ordre de la collection gardé d'une visite à l'autre. (Toolbox) [#46](https://github.com/MaKSiiMe/WikiMastered-extension/issues/46) (0.6.1)
+- [x] Repérage des doublons et de ce qu'ils valent, et mise en vente d'un exemplaire en trop (filtre Doublons, 0.12.0). (Mes doublons, Toolbox) [#22](https://github.com/MaKSiiMe/WikiMastered-extension/issues/22) (0.7.0)
+- [x] ~~Pastilles « Possédée ✓ » / « Nouvelle » sur le marché, les profils et le catalogue.~~ Retiré en 0.12.0 : le site a sa propre étiquette. [#45](https://github.com/MaKSiiMe/WikiMastered-extension/issues/45)
+- [x] ~~Ordre de la collection gardé d'une visite à l'autre.~~ Retiré en 0.12.0 : remplacé par les filtres (étiquettes cumulées, tri par prix). [#46](https://github.com/MaKSiiMe/WikiMastered-extension/issues/46)
 
 ### Paquets
 - [x] Récap des paquets ouverts : répartition par rareté, shiny, valeur, meilleurs tirages, à la main / en auto ; reprise des compteurs de « Prix moyen collection ». (0.4)

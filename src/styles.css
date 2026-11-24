@@ -47,40 +47,22 @@
   font: 600 12px/1.45 system-ui, sans-serif;
 }
 
-/* Possession (« ✓ » vert : on l'a déjà ; point bleu : on ne l'a pas), devant le prix. Le badge peut avoir les couleurs
-   de la rareté : la pastille garde les siennes. */
-.wme-badge[data-own="yes"]::before { content: "✓"; margin-right: 0.35em; color: #4ade80; font-weight: 800; }
-.wme-badge[data-own="no"]::before { content: "●"; margin-right: 0.35em; color: #60a5fa; font-size: 0.75em; }
-
-/* Bloc de la fiche d'une carte (prix, ventes, fourchette, possession), sous son titre. */
-.wme-fiche {
-  margin: 6px 0;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(253, 230, 138, 0.35);
-  background: rgba(15, 15, 20, 0.85);
-  color: #fde68a;
-  font: 600 12px/1.5 system-ui, sans-serif;
-}
-.wme-fiche > .wme-note { color: #d1d5db; font-weight: 400; }
-
 /* Marché (#16) : « −34 % » bonne affaire (vert), « +120 % » surcoté (rouge), après le prix. */
 .wme-badge[data-deal]:not([data-deal=""])::after { content: attr(data-deal); margin-left: 0.4em; padding: 0 0.3em; border-radius: 0.3em;
   font-size: 0.8em; font-weight: 700; color: #fff; }
 .wme-badge[data-deal-kind="deal"]::after { background: #16a34a; }
 .wme-badge[data-deal-kind="high"]::after { background: #dc2626; }
 
-/* Fiche : courbe par rareté, boutons ↻ et Wikipédia. */
-.wme-fiche .wme-row { margin: 2px 0; }
-.wme-fiche .wme-trend { display: block; width: 100%; max-width: 220px; height: 16px; color: #fde68a; opacity: 0.8; }
-.wme-fiche .wme-actions { margin-top: 4px; display: flex; gap: 12px; }
-.wme-fiche .wme-link { all: unset; cursor: pointer; color: #fde68a; text-decoration: underline; font-weight: 400; }
-
 /* Image Wikipédia d'une carte sans image (#25, option), par-dessus l'emplacement de l'image du site. */
 .wme-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 
-/* Bilan d'un échange : détail dépliable des cartes (#26). Composition d'une offre (#50) : écart en vert ou en rouge. */
+/* Bilan d'un échange : détail dépliable des cartes (#26). */
 .wme-trade details > summary { cursor: pointer; }
 .wme-trade .wme-trade-side { margin-top: 4px; font-weight: 400; color: #e5e7eb; }
-.wme-draft[data-side="good"] > div:last-child { color: #4ade80; }
-.wme-draft[data-side="bad"] > div:last-child { color: #f87171; }
+
+/* Composition d'une offre (#50) : valeur de chaque côté dans la barre du site, écart dessous, en vert ou en rouge. Le
+   texte reprend la taille et la police de la barre. */
+.wme-draft-value { margin: 0 0.5em 0 0.35em; color: #fde68a; font-weight: 600; white-space: nowrap; }
+.wme-draft-gap { margin: 2px 0 6px; text-align: center; font-size: 0.85em; font-weight: 600; }
+.wme-draft-gap[data-side="good"] { color: #4ade80; }
+.wme-draft-gap[data-side="bad"] { color: #f87171; }

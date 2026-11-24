@@ -40,7 +40,7 @@ npx wrangler deploy                      # affiche l'adresse https://wikimastere
 ```
 
 `wrangler.toml` et les jetons restent hors du dépôt (`.gitignore`). Un jeton : 32 caractères au hasard, par exemple
-`openssl rand -hex 16`. Pour ajouter ou retirer un participant, remets tout le JSON avec `wrangler secret put TOKENS`.
+`openssl rand -hex 16`. Pour ajouter ou retirer un participant, remets tout le JSON avec `wrangler secret put TOKENS`. Nom conseillé : le pseudo du joueur sur le site, suivi de « (bot) » pour son bot (« jarry », « jarry (bot) ») : c'est lui qu'affiche l'infobulle des badges.
 
 ## Essai en local
 
