@@ -39,6 +39,28 @@ async function ask(type, extra) {
   }
 }
 
+// ------------------------------------------------------------------ Nouveautés (#28) : bouton en haut du panneau,
+// avec un point tant qu'une mise à jour n'a pas été vue. Les versions plus récentes que la dernière vue sont marquées.
+const newsButton = document.getElementById("news");
+chrome.storage.local.get(["wmNewsUnseen"]).then(({ wmNewsUnseen }) => newsButton.classList.toggle("dot", Boolean(wmNewsUnseen)));
+newsButton.addEventListener("click", () => show("news"));
+
+const versionValue = (v) => String(v).split(".").reduce((n, part) => n * 1000 + (Number(part) || 0), 0);
+
+async function newsView() {
+  const { wmNewsSeen = "0" } = await chrome.storage.local.get("wmNewsSeen");
+  chrome.storage.local.set({ wmNewsSeen: chrome.runtime.getManifest().version, wmNewsUnseen: false });
+  chrome.action.setBadgeText({ text: "" }).catch(() => {});
+  newsButton.classList.remove("dot");
+  const state = await ask("state");
+  return WME_NEWS.map((release) => h("div", { className: "box" },
+    h("h3", {}, `Version ${release.version}`, versionValue(release.version) > versionValue(wmNewsSeen) ? h("span", { className: "new" }, " · nouveau pour toi") : null),
+    ...release.items.map((item) => h("p", {}, item.text, " ",
+      item.option && state && state.ok !== false && !state[item.option]
+        ? h("button", { className: "act small", on: { click: async (e) => { await ask(item.option, { on: true }); e.target.replaceWith(" (activé)"); } } }, "Activer")
+        : null))));
+}
+
 // ------------------------------------------------------------------ onglets
 const TABS = {
   page: { label: "Page", every: 2e3, view: pageView },
@@ -48,6 +70,7 @@ const TABS = {
   wishes: { label: "Souhaits", every: 10e3, view: wishesView },
   packs: { label: "Paquets", every: 2e3, view: packsView },
   settings: { label: "Réglages", every: 0, view: settingsView },
+  news: { label: "Nouveautés", every: 0, view: newsView, hidden: true },
 };
 let tab = "page";
 let timer = null;
@@ -55,7 +78,7 @@ let busy = false;
 
 const nav = document.getElementById("tabs");
 for (const [key, t] of Object.entries(TABS)) {
-  nav.append(h("button", { textContent: t.label, on: { click: () => show(key) } }));
+  nav.append(h("button", { textContent: t.label, hidden: Boolean(t.hidden), on: { click: () => show(key) } }));
 }
 
 function show(key) {
@@ -356,6 +379,8 @@ async function settingsView() {
     h("label", {}, h("input", { type: "checkbox", checked: state.badges, on: { change: (e) => ask("badges", { on: e.target.checked }) } }), " Badges de prix"),
     h("label", {}, h("input", { type: "checkbox", checked: state.ownedMarks !== false, on: { change: (e) => ask("ownedMarks", { on: e.target.checked }) } }),
       " « ✓ » sur les cartes que j'ai déjà, point bleu sur les autres"),
+    h("label", {}, h("input", { type: "checkbox", checked: Boolean(state.images), on: { change: (e) => ask("images", { on: e.target.checked }) } }),
+      " Images Wikipédia pour les cartes sans image (le titre de ces cartes est envoyé à Wikipédia, sans rien d'autre)"),
     h("label", {}, h("input", { type: "checkbox", checked: state.deals !== false, on: { change: (e) => ask("deals", { on: e.target.checked }) } }),
       " Marché : « −34 % » bonne affaire (fin dans moins de 15 min, 25 % sous la cote), « +50 % » surcoté"),
     h("label", {}, "Prix fiable à partir de ", minSales, " vente(s) dans la semaine (sinon « ≈ »)"),

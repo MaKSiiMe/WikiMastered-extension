@@ -71,7 +71,7 @@
 
   // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
   // minSales : ventes sur 12 semaines à partir desquelles un prix est fiable (sinon « ≈ »).
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, ownedMarks: true, collectionOrder: "", deals: true };
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, ownedMarks: true, collectionOrder: "", deals: true, images: false };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
@@ -520,6 +520,7 @@
       const key = norm(c.title);
       const entry = seen.get(key) || { id: c.id, title: c.title, rarities: new Set(), shiny: false, url: "" };
       if (c.url) entry.url = c.url;
+      if (c.noImage !== undefined) entry.noImage = c.noImage;
       if (c.rarity) entry.rarities.add(c.rarity);
       if (c.shiny) entry.shiny = true;
       seen.set(key, entry);
@@ -606,7 +607,7 @@
   // Le site n'a pas de classe CSS stable pour une carte : on la retrouve par son titre. On parcourt les textes de la
   // page ; un texte égal au titre d'une carte connue est le nom de la carte, et sa « tuile » est le premier parent qui
   // contient une image et a des frères (une grille). Idée reprise de wm-qol (Kitsoune), qui résiste aux mises à jour.
-  const OURS = ".wme-badge, .wme-trade, .wme-fiche";
+  const OURS = ".wme-badge, .wme-trade, .wme-fiche, .wme-art";
 
   // Taille de l'illustration d'une carte : les petites images (icônes des étiquettes…) ne comptent pas. Une « carte »
   // plus large que CARD_MAX_PX est en fait une fenêtre (la fiche d'une carte) : le titre de son en-tête n'a pas de badge.
@@ -691,6 +692,7 @@
   function badge(tile, entry) {
     const { rarity, shiny, el: rarityEl } = tileRarity(tile, entry);
     want(entry.id, "page", rarity);
+    if (settings.images && entry.noImage === true) fillImage(tile, entry);
     const entryPrices = prices[entry.id];
     let text = "…";
     let tip = "Prix en cours de lecture";
@@ -1071,6 +1073,47 @@
     return { rows, age };
   }
 
+  // ------------------------------------------------------------------ images Wikipédia (#25, option)
+  // Une carte sans image (le site n'en a pas, et ne l'a pas masquée) reçoit la vignette de son article, par l'API publique
+  // de Wikipédia (titre seulement, sans cookie). Posée par-dessus l'emplacement de l'image du site, jamais à la place
+  // d'une image masquée.
+  const wikiImages = new Map(); // titre -> adresse de la vignette, "" si l'article n'en a pas, Promise en cours
+  function wikiThumb(entry) {
+    const key = entry.url || entry.title;
+    if (wikiImages.has(key)) return wikiImages.get(key);
+    let lang = "fr";
+    let page = entry.title.replace(/ /g, "_");
+    const m = /^https:\/\/([a-z-]+)\.wikipedia\.org\/wiki\/(.+)$/.exec(entry.url || "");
+    if (m) [lang, page] = [m[1], decodeURIComponent(m[2])];
+    const pending = fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(page)}`, { credentials: "omit" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const src = (data && ((data.thumbnail && data.thumbnail.source) || (data.originalimage && data.originalimage.source))) || "";
+        const url = /^https:\/\/upload\.wikimedia\.org\//.test(src) ? src : "";
+        wikiImages.set(key, url);
+        return url;
+      }, () => { wikiImages.set(key, ""); return ""; });
+    wikiImages.set(key, pending);
+    return pending;
+  }
+
+  async function fillImage(tile, entry) {
+    if (tile.querySelector(".wme-art")) return;
+    const biggest = [...tile.querySelectorAll("img")].sort((a, b) => {
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      return rb.width * rb.height - ra.width * ra.height;
+    })[0];
+    const holder = biggest && biggest.parentElement;
+    if (!holder) return;
+    const url = await wikiThumb(entry);
+    if (!url || !holder.isConnected || tile.querySelector(".wme-art")) return;
+    if (getComputedStyle(holder).position === "static") holder.style.position = "relative";
+    const img = Object.assign(document.createElement("img"), { src: url, alt: "", className: "wme-art", referrerPolicy: "no-referrer" });
+    img.title = "Image de l'article Wikipédia (le site n'en a pas)";
+    holder.append(img);
+  }
+
   // ↻ (#17) : relit tout de suite le prix de cette carte sur le site (pas le cache partagé), en tête de file.
   function rereadCard(id) {
     delete prices[id];
@@ -1301,6 +1344,11 @@
     } else if (message.type === "autoUnblockMarket") {
       settings.autoUnblockMarket = Boolean(message.on);
       store.set("settings", settings);
+    } else if (message.type === "images") {
+      settings.images = Boolean(message.on);
+      store.set("settings", settings);
+      if (!settings.images) document.querySelectorAll(".wme-art").forEach((img) => img.remove());
+      drawBadges();
     } else if (message.type === "deals") {
       settings.deals = Boolean(message.on);
       store.set("settings", settings);
@@ -1341,6 +1389,7 @@
       minSales: settings.minWeekSales,
       ownedMarks: settings.ownedMarks,
       deals: settings.deals,
+      images: settings.images,
       collectionOrder: settings.collectionOrder,
       clickInfo,
       seen: seen.size,

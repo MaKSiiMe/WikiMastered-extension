@@ -9,8 +9,10 @@
     header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #ffffff14; }
     header img { width: 20px; height: 20px; }
     header small { margin-left: auto; color: #9ca3af; }
-    nav { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid #ffffff14; position: sticky; top: 0; background: #111118; }
-    nav button { flex: 1; padding: 6px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: #9ca3af;
+    #news { margin: 0; position: relative; }
+    #news.dot::after { content: ""; position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: #16a34a; }
+    nav { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid #ffffff14; position: sticky; top: 0; background: #111118; }
+    nav button { flex: 1 0 auto; padding: 6px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: #9ca3af;
       font: inherit; font-size: 12px; cursor: pointer; }
     nav button[aria-selected="true"] { color: #fde68a; border-bottom-color: #fde68a; }
     main { padding: 10px 12px; }
@@ -40,10 +42,11 @@
   </style>
 </head>
 <body>
-  <header><img src="../icons/icon-32.png" alt=""><b>WikiMastered</b><small id="version"></small></header>
+  <header><img src="../icons/icon-32.png" alt=""><b>WikiMastered</b><small id="version"></small><button id="news" class="act small">Nouveautés</button></header>
   <nav id="tabs"></nav>
   <main id="main"><p class="muted">Lecture…</p></main>
   <script src="lib.js"></script>
+  <script src="news.js"></script>
   <script src="panel.js"></script>
 </body>
 </html>

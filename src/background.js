@@ -61,3 +61,11 @@ if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
 } else if (typeof browser !== "undefined" && browser.sidebarAction && browser.action) {
   browser.action.onClicked.addListener(() => browser.sidebarAction.toggle());
 }
+
+// Après une mise à jour, un point sur l'icône signale les nouveautés (#28), jusqu'à ce que le panneau les montre.
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason !== "update") return;
+  chrome.action.setBadgeBackgroundColor({ color: "#16a34a" }).catch(() => {});
+  chrome.action.setBadgeText({ text: "●" }).catch(() => {});
+  chrome.storage.local.set({ wmNewsUnseen: true });
+});
