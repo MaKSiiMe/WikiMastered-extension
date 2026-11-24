@@ -75,6 +75,7 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
     - jamais vendues dans leur rareté, ou vendues dans une tranche de prix.
 
     Tri par valeur ou par rareté.
+  - **Souhaits** : ta liste de souhaits du site, chaque carte au prix le plus bas connu (toutes raretés) et les autres raretés, et le coût total.
   - **Doublons** : chaque carte possédée en plusieurs exemplaires, l'exemplaire gardé (le plus rare), ceux en trop et ce qu'ils valent, les favoris (verrouillés par le site) signalés.
   - La collection est lue dans la base du site, comme le site lui-même (une quinzaine de requêtes pour 15 000 cartes, avec ta session ; aucune route de prix), puis gardée 12 h. Le panneau ne lit rien lui-même : il passe par l'onglet du site ouvert.
 - **Fiche d'une carte** : sous le titre de la fenêtre d'une carte, un bloc par rareté vendue : prix (« ≈ » s'il est incertain), ventes de la semaine et des 12 dernières, plus bas et plus haut sur 4 semaines, variation sur la semaine d'avant, et si tu as déjà la carte. Aucune requête en plus : c'est l'historique que le site lit en ouvrant la fiche.

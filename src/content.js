@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -910,6 +910,50 @@
   }
   const time = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
+  // Liste de souhaits (#21), lue dans la même base : table wishlist_items (ses propres souhaits), gardée 30 min.
+  let wishCache = null;
+  async function readWishlist(force) {
+    if (!force && wishCache && Date.now() - wishCache.at < 30 * 60e3) return wishCache.wishes;
+    const access = await store.get(SUPABASE_KEY, null);
+    if (!access) throw new Error("Accès à la base pas encore repéré : recharge une page du site, puis réessaie.");
+    const { token } = await session(access.base);
+    const wishes = [];
+    const ids = new Set();
+    for (let page = 0; page < 20; page++) {
+      const response = await fetch(`${access.base}wishlist_items?select=card_id,cards(wikipedia_title)&order=card_id.asc&limit=1000&offset=${page * 1000}`, {
+        credentials: "omit", headers: { apikey: access.apikey, authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error(`Lecture de la liste de souhaits refusée (HTTP ${response.status})`);
+      const batch = await response.json();
+      if (!Array.isArray(batch)) throw new Error("Réponse inattendue de la base du site");
+      for (const w of batch) {
+        if (!w || !w.card_id || ids.has(w.card_id)) continue;
+        ids.add(w.card_id);
+        wishes.push({ id: String(w.card_id), title: String((w.cards && w.cards.wikipedia_title) || w.card_id) });
+      }
+      if (batch.length < 1000) break;
+    }
+    wishCache = { at: Date.now(), wishes };
+    return wishes;
+  }
+
+  async function panelWishlist(refresh) {
+    const wishes = await readWishlist(refresh);
+    const unknown = wishes.filter((w) => !usable(prices[w.id])).map((w) => w.id);
+    if (unknown.length && sharedOn && (refresh || !wishCache.filled)) {
+      wishCache.filled = true;
+      fillFromShared(unknown); // en arrière-plan : le prochain affichage en profite
+    }
+    return wishlistSummary(wishes, (id) => (usable(prices[id]) ? prices[id].q : null), (id) => owned.get(id));
+  }
+
+  async function loadWishPrices() {
+    const wishes = await readWishlist(false);
+    let count = 0;
+    for (const w of wishes) if (!usable(prices[w.id])) { want(w.id, "background"); count += 1; }
+    return count;
+  }
+
   // Prix d'une carte pour les filtres : jamais vendue (relevé récent sans vente dans cette rareté), prix, ou inconnu.
   function cardPriceInfo(cardId, rarity) {
     const entry = prices[cardId];
@@ -1176,6 +1220,8 @@
       const work = message.action === "loadPrices" ? loadMissingPrices(Array.isArray(message.rarities) ? message.rarities : [])
         .then((count) => ({ ok: true, count }))
         : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
+        : message.action === "wishlist" ? panelWishlist(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
+        : message.action === "loadWishPrices" ? loadWishPrices().then((count) => ({ ok: true, count }))
           : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
       work.catch((error) => ({ ok: false, error: String((error && error.message) || error) })).then(reply);
       return true;

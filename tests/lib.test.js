@@ -293,3 +293,13 @@ test("filtres de la collection : critères cumulables, prix, tri par valeur", ()
   assert.deepEqual(f({ rarities: ["L", "R"], sort: "value-asc" }), ["gif:R", "ana:L"]);
   assert.equal(WME.filterCollection(rows, titles, info, { duplicates: true }).count, 3);
 });
+
+test("liste de souhaits chiffrée : prix le plus bas connu, coût total", () => {
+  const quotes = { a: { L: { avg: 9000 }, R: { avg: 300 } }, b: {}, c: { C: { avg: 5 } } };
+  const s = WME.wishlistSummary([{ id: "a", title: "A" }, { id: "b", title: "B" }, { id: "c", title: "C" }, { id: "d", title: "D" }],
+    (id) => quotes[id] || null, (id) => id === "c");
+  assert.deepEqual(s.items.map((i) => [i.id, i.cheapest && i.cheapest.rarity, i.state, i.owned]),
+    [["a", "R", "price", false], ["c", "C", "price", true], ["b", null, "never", false], ["d", null, "unknown", false]]);
+  assert.equal(s.total, 305);
+  assert.deepEqual([s.priced, s.never, s.unknown], [2, 1, 1]);
+});

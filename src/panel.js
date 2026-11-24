@@ -45,6 +45,7 @@ const TABS = {
   collection: { label: "Collection", every: 10e3, view: collectionView },
   duplicates: { label: "Doublons", every: 10e3, view: duplicatesView },
   filters: { label: "Filtres", every: 0, view: filtersView },
+  wishes: { label: "Souhaits", every: 10e3, view: wishesView },
   packs: { label: "Paquets", every: 2e3, view: packsView },
   settings: { label: "Réglages", every: 0, view: settingsView },
 };
@@ -237,6 +238,34 @@ async function filtersView() {
     h("label", {}, "Trier par ", sort),
     h("button", { className: "act", on: { click: run } }, "Filtrer"),
     results,
+  ];
+}
+
+// ------------------------------------------------------------------ Souhaits (#21) : la liste de souhaits du site,
+// chiffrée au prix le plus bas connu de chaque carte (toutes raretés).
+let wishRefresh = false;
+async function wishesView() {
+  const s = await ask("panel", { action: "wishlist", refresh: wishRefresh });
+  wishRefresh = false;
+  if (!s.ok) return error(s);
+  if (!s.items.length) return [h("p", {}, "Ta liste de souhaits est vide.")];
+  return [
+    h("p", { className: "big" }, `≈ ${fr(s.total)} WB`),
+    h("p", { className: "muted" }, `${s.items.length} carte(s) souhaitée(s) · ${s.priced} avec un prix (le plus bas connu, toutes raretés) · ` +
+      `${s.never} jamais vendue(s) · ${s.unknown} prix pas encore lu(s)`),
+    h("div", {},
+      h("button", { className: "act", disabled: !s.unknown, on: { click: async (e) => {
+        e.target.disabled = true;
+        const reply = await ask("panel", { action: "loadWishPrices" });
+        e.target.textContent = reply.ok ? `${reply.count} carte(s) en file` : reply.error;
+      } } }, s.unknown ? `Lire les prix manquants (${s.unknown})` : "Tous les prix sont lus"),
+      h("button", { className: "act small", on: { click: () => { wishRefresh = true; draw(true); } } }, "Relire la liste")),
+    h("table", {}, h("tr", {}, h("th", {}, "Carte"), h("th", { className: "num" }, "Dès"), h("th", {}, "Autres raretés")),
+      ...s.items.map((i) => h("tr", {},
+        h("td", {}, i.title + (i.owned ? " ✓" : "")),
+        h("td", { className: "num" }, i.cheapest ? `${i.cheapest.rarity} ${wb(i.cheapest.avg)}` : i.state === "never" ? "jamais vendue" : "?"),
+        h("td", { className: "muted" }, i.prices.filter(([r]) => !i.cheapest || r !== i.cheapest.rarity).map(([r, avg]) => `${r} ${wb(avg)}`).join(" · "))))),
+    h("p", { className: "muted" }, "« ✓ » : tu as déjà la carte (dans une autre rareté, sans doute)."),
   ];
 }
 
