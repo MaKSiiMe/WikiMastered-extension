@@ -524,7 +524,11 @@ async function settingsView() {
     h("label", {}, h("input", { type: "checkbox", checked: state.badges, on: { change: (e) => ask("badges", { on: e.target.checked }) } }), " Badges de prix"),
     h("label", {}, h("input", { type: "checkbox", checked: state.ownedMarks !== false, on: { change: (e) => ask("ownedMarks", { on: e.target.checked }) } }),
       " « ✓ » sur les cartes que j'ai déjà, point bleu sur les autres"),
-    h("label", {}, h("input", { type: "checkbox", checked: Boolean(state.images), on: { change: (e) => ask("images", { on: e.target.checked }) } }),
+    h("label", {}, h("input", { type: "checkbox", checked: Boolean(state.images), on: { change: (e) => {
+      if (!e.target.checked) return ask("images", { on: false });
+      const box = e.target;
+      requestAccess([]).then((granted) => (granted ? ask("images", { on: true }) : (box.checked = false)), () => { box.checked = false; });
+    } } }),
       " Images Wikipédia pour les cartes sans image (le titre de ces cartes est envoyé à Wikipédia, sans rien d'autre)"),
     h("label", {}, h("input", { type: "checkbox", checked: state.deals !== false, on: { change: (e) => ask("deals", { on: e.target.checked }) } }),
       " Marché : « −34 % » bonne affaire (fin dans moins de 15 min, 25 % sous la cote), « +50 % » surcoté"),
@@ -606,6 +610,15 @@ async function dataSection() {
     status);
 }
 
+// Firefox demande le consentement de l'utilisateur avant tout envoi de données (data_collection_permissions du
+// manifeste : rien par défaut, « contenu du site » en option, pour les prix partagés et les images Wikipédia). La
+// demande part pendant le clic, comme l'exige le navigateur.
+const isFirefox = typeof browser !== "undefined" && browser.runtime && typeof browser.runtime.getBrowserInfo === "function";
+function requestAccess(origins) {
+  if (!isFirefox && !origins.length) return Promise.resolve(true);
+  return chrome.permissions.request({ ...(origins.length ? { origins } : {}), ...(isFirefox ? { data_collection: ["websiteContent"] } : {}) });
+}
+
 // Réglages des prix partagés (src/background.js, server/).
 const SHARED_KEY = "shared";
 async function sharedSettings() {
@@ -639,7 +652,7 @@ async function sharedSettings() {
       status.textContent = !origin ? "Adresse attendue : https://….workers.dev" : "Jeton manquant.";
       return;
     }
-    const granting = chrome.permissions.request({ origins: [`${origin}/*`] });
+    const granting = requestAccess([`${origin}/*`]);
     chrome.storage.local.set({ [SHARED_KEY]: value });
     granting.then((granted) => (granted ? check() : (status.textContent = "Autorisation refusée : l'extension ne peut pas joindre ce serveur.")),
       (e) => { status.textContent = `Autorisation impossible : ${e.message}`; });
