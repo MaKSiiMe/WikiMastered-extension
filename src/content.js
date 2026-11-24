@@ -556,7 +556,7 @@
   // Le site n'a pas de classe CSS stable pour une carte : on la retrouve par son titre. On parcourt les textes de la
   // page ; un texte égal au titre d'une carte connue est le nom de la carte, et sa « tuile » est le premier parent qui
   // contient une image et a des frères (une grille). Idée reprise de wm-qol (Kitsoune), qui résiste aux mises à jour.
-  const OURS = ".wme-badge, .wme-trade";
+  const OURS = ".wme-badge, .wme-trade, .wme-fiche";
 
   // Taille de l'illustration d'une carte : les petites images (icônes des étiquettes…) ne comptent pas. Une « carte »
   // plus large que CARD_MAX_PX est en fait une fenêtre (la fiche d'une carte) : le titre de son en-tête n'a pas de badge.
@@ -785,6 +785,63 @@
   // Sur un profil (vitrines), le prix n'apparaît qu'au survol de la carte : une vitrine se regarde.
   const hoverOnly = () => location.pathname.startsWith("/profile");
 
+  // ------------------------------------------------------------------ fiche d'une carte (#47)
+  // Sous le titre de la fenêtre d'une carte, un bloc par rareté vendue : prix (« ≈ » s'il est incertain), ventes de la
+  // semaine et des 12 dernières, plus bas et plus haut sur 4 semaines, variation par rapport à la semaine d'avant ; et
+  // si on possède la carte. Les chiffres viennent de l'historique que le site lit lui-même en ouvrant la fiche
+  // (fromSite) : aucune requête en plus. Repères de la fenêtre relevés dans le code de LeadOn/Wikimasters-Toolbox.
+  const FICHE_MODAL = "div.fixed.inset-0";
+  const shortDay = (iso) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
+
+  function ficheLines(entry) {
+    const entryPrices = prices[entry.id];
+    if (!entryPrices || !usable(entryPrices)) return ["Prix en cours de lecture…"];
+    const rows = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a)).map(([rarity, q]) => {
+      const sure = reliable(q, settings.minWeekSales);
+      const when = q.week >= currentWeek() ? "cette semaine" : `la semaine du ${shortDay(q.week)}`;
+      const parts = [`${rarity} ${sure ? "" : "≈ "}${wb(q.avg)}`, `${q.count} vente(s) ${when}`];
+      if (Number.isFinite(q.sales12)) parts.push(`${q.sales12} sur 12 sem.`);
+      if (Number.isFinite(q.low4) && Number.isFinite(q.high4)) parts.push(`4 sem. : ${wb(q.low4)} – ${wb(q.high4)}`);
+      if (Number.isFinite(q.prev) && q.prev > 0) {
+        const pct = Math.round((q.avg / q.prev - 1) * 100);
+        parts.push(`${pct > 0 ? "+" : ""}${pct} % sur la semaine d'avant`);
+      }
+      return parts.join(" · ");
+    });
+    if (!rows.length) rows.push("Jamais vendue.");
+    const age = `Relevé il y a ${ago(Date.now() - entryPrices.at)}` +
+      (entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "") + ".";
+    return [...rows, age];
+  }
+
+  function drawFiches() {
+    for (const modal of document.querySelectorAll(FICHE_MODAL)) {
+      const title = modal.querySelector("h2");
+      const entry = title && seen.get(norm(title.textContent));
+      let block = modal.querySelector(".wme-fiche");
+      if (!entry) {
+        if (block) block.remove();
+        continue;
+      }
+      want(entry.id, "urgent");
+      if (!block) {
+        block = document.createElement("div");
+        block.className = "wme-fiche";
+        const anchor = title.parentElement && title.parentElement !== modal ? title.parentElement : title;
+        anchor.after(block);
+      }
+      const own = owned.get(entry.id);
+      const lines = [...ficheLines(entry), own === undefined ? "" : own ? "Tu as déjà cette carte." : "Tu n'as pas cette carte."]
+        .filter(Boolean);
+      const text = lines.join("\n");
+      if (block.dataset.text !== text) {
+        block.dataset.text = text;
+        block.replaceChildren(...lines.map((line) => Object.assign(document.createElement("div"),
+          { textContent: line, className: /^(Relevé|Tu )/.test(line) ? "wme-note" : "" })));
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ ordre de la collection (#46)
   // Le site revient à l'ordre par rareté à chaque visite de /collection. Avec un ordre choisi dans la fenêtre (« Nom »,
   // « Favoris », « Date d'ajout » : les libellés de son menu), on le sélectionne dans son menu, une fois par visite ;
@@ -843,6 +900,7 @@
       shownTrades = [];
       return;
     }
+    drawFiches();
     const tiles = findTiles();
     pageTiles = new Map();
     for (const [tile, entry] of tiles) (pageTiles.get(entry.id) || pageTiles.set(entry.id, []).get(entry.id)).push(tile);

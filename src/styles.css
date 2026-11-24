@@ -51,3 +51,15 @@
    de la rareté : la pastille garde les siennes. */
 .wme-badge[data-own="yes"]::before { content: "✓"; margin-right: 0.35em; color: #4ade80; font-weight: 800; }
 .wme-badge[data-own="no"]::before { content: "●"; margin-right: 0.35em; color: #60a5fa; font-size: 0.75em; }
+
+/* Bloc de la fiche d'une carte (prix, ventes, fourchette, possession), sous son titre. */
+.wme-fiche {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(253, 230, 138, 0.35);
+  background: rgba(15, 15, 20, 0.85);
+  color: #fde68a;
+  font: 600 12px/1.5 system-ui, sans-serif;
+}
+.wme-fiche > .wme-note { color: #d1d5db; font-weight: 400; }

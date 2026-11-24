@@ -16,7 +16,7 @@ test("le prix moyen est celui de la dernière semaine avec des ventes, comme sur
     },
   };
   const now = new Date("2026-11-24T12:00:00Z");
-  assert.deepEqual(WME.quotes(history, now), { L: { avg: 9000, count: 8, week: "2026-11-16", sales12: 12 } }); // SR sans prix, XX inconnue
+  assert.deepEqual(WME.quotes(history, now), { L: { avg: 9000, count: 8, week: "2026-11-16", sales12: 12, low4: 8000, high4: 9000, prev: 8000 } }); // SR sans prix, XX inconnue
   assert.deepEqual(WME.quotes(null), {});
 });
 
@@ -54,8 +54,8 @@ test("les ventes de /sales redonnent l'historique de price-history quand elles s
   assert.deepEqual(history.by_rarity.C.weekly, [{ start: "2026-11-16", avg: 300, min: 300, max: 300, count: 1 }]);
   assert.deepEqual(history.by_rarity.R.monthly, [{ start: "2026-11-01", avg: 1101, min: 1000, max: 1201, count: 2 }]);
   assert.deepEqual(WME.quotes(history, new Date("2026-11-24T12:00:00Z")), {
-    R: { avg: 1101, count: 2, week: "2026-11-23", sales12: 2 },
-    C: { avg: 300, count: 1, week: "2026-11-16", sales12: 1 },
+    R: { avg: 1101, count: 2, week: "2026-11-23", sales12: 2, low4: 1000, high4: 1201, prev: null },
+    C: { avg: 300, count: 1, week: "2026-11-16", sales12: 1, low4: 300, high4: 300, prev: null },
   });
   assert.equal(WME.totalSales(history), 3);
   assert.equal(WME.salesComplete({ recent }), true);
@@ -207,4 +207,16 @@ test("possession des cartes lue dans les réponses du site, sans requête", () =
   assert.deepEqual(WME.ownershipIn({ collection: [{ card: c("7"), owned_by_viewer: false }] }, "/api/profile/x/collection"),
     [["7", false]]);
   assert.deepEqual(WME.ownershipIn(null), []);
+});
+
+test("fiche : fourchette des 4 dernières semaines et semaine précédente", () => {
+  const now = new Date("2026-11-24T12:00:00Z"); // 4 semaines : depuis le 02/11
+  const history = { by_rarity: { UR: { weekly: [
+    { start: "2026-10-26", avg: 2352, min: 450, max: 4177, count: 17 }, // 5e semaine : hors fourchette
+    { start: "2026-11-02", avg: 3358, min: 500, max: 6000, count: 74 },
+    { start: "2026-11-09", avg: 3837, min: 2420, max: 6000, count: 43 },
+    { start: "2026-11-16", avg: 4239, min: 2662, max: 7262, count: 15 },
+  ] } } };
+  const q = WME.quotes(history, now).UR;
+  assert.deepEqual([q.avg, q.low4, q.high4, q.prev], [4239, 500, 7262, 3837]);
 });
