@@ -29,6 +29,14 @@
   const LIMIT_PAUSE_MS = 10 * 60e3;     // 403 automation_limit ou vérification demandée : pause de 10 min
   const READ_BUDGET = 80;               // lectures par route et par fenêtre de 10 min, tous onglets confondus :
   const READ_WINDOW_MS = 10 * 60e3;     // le site bloque vers 90-100 (et le bot WikiMastered lit sur le même compte)
+  // Rafale : au plus 10 lectures par 30 s, les deux routes ensemble (relevé du 24/11 : le site a coupé les deux routes
+  // après 18 et 19 lectures dans la même minute, une autre extension lisant en même temps ; Toolbox s'en tient aussi
+  // à 10 par 30 s). Après un refus « quota », budgets et rafale divisés par deux pendant 24 h.
+  const BURST = 10;
+  const BURST_WINDOW_MS = 30e3;
+  const BURST_KEY = "wmBurstReads";     // dates des lectures récentes, toutes routes
+  const SLOW_KEY = "wmSlowUntil";       // date jusqu'à laquelle les budgets sont divisés par deux
+  const SLOW_MS = 24 * 3600e3;
   const READS_KEY = "wmPriceReads";     // dates des lectures récentes de price-history, partagées entre onglets
   const SALES_READS_KEY = "wmSalesReads"; // … de /sales, qui a son propre quota (readBudget)
   const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause de toutes les lectures, partagée entre onglets
@@ -58,7 +66,7 @@
 
   // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
   // minSales : ventes sur 12 semaines à partir desquelles un prix est fiable (sinon « ≈ »).
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minSales: MIN_SALES, ownedMarks: true, collectionOrder: "" };
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, ownedMarks: true, collectionOrder: "" };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
@@ -75,8 +83,8 @@
   // Chaque route a son budget (READ_BUDGET par READ_WINDOW_MS, partagé entre onglets), sa cadence, et sa pause quand
   // le site la coupe (automation_limit). Une vérification humaine ou un 429 arrêtent les deux.
   const ROUTES = {
-    history: { label: "historiques", readsKey: READS_KEY, lock: "wme-price-reads" },
-    sales: { label: "ventes", readsKey: SALES_READS_KEY, lock: "wme-sales-reads" },
+    history: { label: "historiques", readsKey: READS_KEY },
+    sales: { label: "ventes", readsKey: SALES_READS_KEY },
   };
   for (const r of Object.values(ROUTES)) Object.assign(r, { last: 0, pausedUntil: 0, reason: "", reads: 0, waiting: false });
   let pausedUntil = 0; // pause de toutes les routes
@@ -105,24 +113,38 @@
 
   // Budget d'une route : -> ms à attendre avant sa prochaine lecture (0 : tout de suite). Avec `take`, la place est
   // réservée, sous un verrou (Web Locks, commun aux onglets du site) pour que deux onglets ne prennent pas la même.
+  let slowUntil = 0; // budgets divisés par deux jusqu'à cette date (refus « quota » récent)
+  const factor = () => (Date.now() < slowUntil ? 0.5 : 1);
+
   async function budgetWait(route, take) {
     const r = ROUTES[route];
     const check = async () => {
       const now = Date.now();
-      const budget = readBudget(await store.get(r.readsKey, []), now, READ_BUDGET, READ_WINDOW_MS);
+      const budget = readBudget(await store.get(r.readsKey, []), now, Math.floor(READ_BUDGET * factor()), READ_WINDOW_MS);
+      const burst = readBudget(await store.get(BURST_KEY, []), now, Math.floor(BURST * factor()), BURST_WINDOW_MS);
       r.reads = budget.stamps.length;
-      if (budget.wait > 0 || !take) return budget.wait;
+      const wait = Math.max(budget.wait, burst.wait);
+      if (wait > 0 || !take) return wait;
       await store.set(r.readsKey, [...budget.stamps, now]);
+      await store.set(BURST_KEY, [...burst.stamps, now]);
       r.reads += 1;
       return 0;
     };
     if (!take) return check();
-    try {
-      return navigator.locks ? await navigator.locks.request(r.lock, check) : await check();
-    } catch (_) {
-      return check(); // verrou indisponible (content script Firefox…) : réservation sans verrou
-    }
+    // Les réservations passent une à une : dans l'onglet par une file (les deux routes partagent la rafale), entre
+    // onglets par un verrou Web Locks commun quand le navigator le permet.
+    const locked = async () => {
+      try {
+        return navigator.locks ? await navigator.locks.request("wme-price-reads", check) : await check();
+      } catch (_) {
+        return check(); // verrou indisponible (content script Firefox…) : la file de l'onglet suffit
+      }
+    };
+    const turn = reservations.then(locked);
+    reservations = turn.catch(() => {});
+    return turn;
   }
+  let reservations = Promise.resolve();
 
   // Attend que la route puisse lire (pause finie, place dans le budget) sans rien réserver : la carte à lire n'est
   // choisie qu'ensuite, d'après ce qui est à l'écran à ce moment-là.
@@ -166,7 +188,11 @@
         rate: "le site limite les requêtes",
       }[limit];
       noteLimit(route, limit, response.status);
-      if (limit === "automation") pauseRoute(route, LIMIT_PAUSE_MS, reason);
+      if (limit === "automation") {
+        pauseRoute(route, LIMIT_PAUSE_MS, reason);
+        slowUntil = Date.now() + SLOW_MS;
+        store.set(SLOW_KEY, slowUntil);
+      }
       else pauseAll(limit === "rate" && retryAfter > 0 ? retryAfter : limit === "rate" ? RATE_LIMIT_PAUSE_MS : LIMIT_PAUSE_MS, reason);
       throw Object.assign(new Error(`${reason} (HTTP ${response.status})`), { rateLimited: true });
     }
@@ -638,12 +664,12 @@
         const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
         const grey = Date.now() - entryPrices.at >= GREY_AFTER_MS;
         // Prix fiable (assez de ventes sur 12 semaines) : le chiffre seul ; sinon « ≈ », à prendre avec prudence.
-        const sure = reliable(q, settings.minSales);
+        const sure = reliable(q, settings.minWeekSales);
         [text, state, value] = [sure ? wb(q.avg) : `≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
         const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
-        const sales = sure === null ? ""
-          : ` ${q.sales12} vente(s) sur ${RECENT_WEEKS} semaines${sure ? "" : ` : prix incertain (fiable à partir de ${settings.minSales})`}.`;
-        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s).${sales} ` +
+        const sales = sure ? "" : ` Prix incertain : moins de ${settings.minWeekSales} ventes dans la semaine.`;
+        const recent = Number.isFinite(q.sales12) ? ` ${q.sales12} vente(s) sur ${RECENT_WEEKS} semaines.` : "";
+        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s).${sales}${recent} ` +
           `Relevé il y a ${ago(Date.now() - entryPrices.at)}${by}.${old}`;
       } else {
         const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
@@ -900,6 +926,7 @@
     const pause = changes[PAUSE_KEY] && changes[PAUSE_KEY].newValue;
     if (pause && pause.until > pausedUntil) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     if (changes[ROUTE_PAUSE_KEY]) applyRoutePauses(changes[ROUTE_PAUSE_KEY].newValue);
+    if (changes[SLOW_KEY]) slowUntil = Math.max(slowUntil, Number(changes[SLOW_KEY].newValue) || 0);
     if (changes[LIMITS_KEY]) limitLog = changes[LIMITS_KEY].newValue || [];
     if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
     if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
@@ -933,7 +960,7 @@
       orderVisit = null; // appliqué tout de suite si la collection est affichée
       ensureCollectionOrder();
     } else if (message.type === "minSales") {
-      settings.minSales = Math.min(50, Math.max(1, Math.round(Number(message.value)) || MIN_SALES));
+      settings.minWeekSales = Math.min(50, Math.max(1, Math.round(Number(message.value)) || MIN_SALES));
       store.set("settings", settings);
       drawBadges();
     } else if (message.type === "clearPulls") {
@@ -955,7 +982,7 @@
       badges: settings.badges,
       autoClickPack: settings.autoClickPack,
       autoUnblockMarket: settings.autoUnblockMarket,
-      minSales: settings.minSales,
+      minSales: settings.minWeekSales,
       ownedMarks: settings.ownedMarks,
       collectionOrder: settings.collectionOrder,
       clickInfo,
@@ -968,7 +995,8 @@
       pauses: currentPauses(),
       reads: Object.fromEntries(Object.entries(ROUTES).map(([k, r]) => [k, r.reads])),
       limits: limitLog.slice(0, 5),
-      readBudget: READ_BUDGET,
+      readBudget: Math.floor(READ_BUDGET * factor()),
+      slowUntil,
       trades: shownTrades,
       shared: { on: sharedOn, ...sharedStats },
       pulls: pullRecap(pullLog, priceOf, (pullBaselineEntry && pullBaselineEntry.counts) || {}),
@@ -984,6 +1012,7 @@
     if (pause && pause.until > Date.now()) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     applyRoutePauses(await store.get(ROUTE_PAUSE_KEY, null));
     limitLog = await store.get(LIMITS_KEY, []);
+    slowUntil = Number(await store.get(SLOW_KEY, 0)) || 0;
     for (const [id, flag] of Object.entries(await store.get(OWNED_KEY, {}))) if (!owned.has(id)) owned.set(id, Boolean(flag));
     const storedPulls = await store.get(PULLS_KEY, null);
     if (Array.isArray(storedPulls)) {

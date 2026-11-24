@@ -45,14 +45,14 @@ const WME = (() => {
 
   /** Semaines prises en compte pour juger un prix (comme Toolbox : 12, semaine en cours comprise). */
   const RECENT_WEEKS = 12;
-  /** Seuil par défaut : un prix est fiable à partir de 3 ventes sur 12 semaines (réglable dans la fenêtre). */
-  const MIN_SALES = 3;
+  /** Seuil par défaut : un prix est fiable s'il repose sur au moins 5 ventes dans la semaine (réglable). */
+  const MIN_SALES = 5;
 
   /**
-   * Prix fiable ? true : assez de ventes sur 12 semaines ; false : trop peu, le badge l'affiche « ≈ » ; null : inconnu
-   * (prix relevé avant la 0.6, sans ce compte).
+   * Prix fiable ? Le prix affiché est la moyenne d'une semaine : il est fiable si cette semaine compte au moins
+   * `minSales` ventes (`count`). Sinon le badge l'affiche « ≈ ».
    */
-  const reliable = (q, minSales = MIN_SALES) => (q && Number.isFinite(q.sales12) ? q.sales12 >= minSales : null);
+  const reliable = (q, minSales = MIN_SALES) => Boolean(q && Number(q.count) >= minSales);
 
   // Semaines du site : elles commencent le lundi, jour calendaire de Paris (relevé par LeadOn/Wikimasters-Toolbox,
   // core/prices.js : c'est la clé `start` de price-history). Les mois aussi suivent le calendrier de Paris.

@@ -39,6 +39,8 @@ function render(state) {
     h("p", { className: "muted" }, `${state.known} prix à jour · ${state.old} de plus de 24 h (grisés) · ${state.waiting} en attente`),
     h("p", { className: "muted" }, `Lectures sur 10 min : ${state.reads.history}/${state.readBudget} historiques · ` +
       `${state.reads.sales}/${state.readBudget} ventes`),
+    state.slowUntil > Date.now() && h("p", { className: "muted" }, "Rythme de lecture divisé par deux jusqu'à " +
+      `${new Date(state.slowUntil).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} (refus récent du site).`),
     ...state.pauses.map((p) => h("p", { className: "muted" }, `Pause : ${p.reason}, jusqu'à ` +
       `${new Date(p.until).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`)),
     h("label", {},
@@ -46,7 +48,7 @@ function render(state) {
       " Badges de prix sur les cartes"),
     h("label", {},
       h("input", { type: "checkbox", checked: state.ownedMarks !== false, on: { change: async (e) => render(await ask("ownedMarks", { on: e.target.checked })) } }),
-      " « ✓ » / « Nouvelle » : cartes que j'ai déjà ou pas"),
+      " « ✓ » sur les cartes que j'ai déjà, point bleu sur les autres"),
     h("label", {},
       h("input", {
         type: "checkbox",
@@ -200,7 +202,7 @@ async function setupMinSales() {
       .map(([value, label]) => h("option", { value, selected: (state.collectionOrder || "") === value }, label)));
   order.addEventListener("change", () => ask("collectionOrder", { value: order.value }));
   document.getElementById("settings").replaceChildren(
-    h("label", {}, "Prix fiable à partir de ", input, " vente(s) sur 12 semaines (sinon « ≈ »)"),
+    h("label", {}, "Prix fiable à partir de ", input, " vente(s) dans la semaine (sinon « ≈ »)"),
     h("label", {}, "Ordre de ma collection : ", order));
 }
 setupMinSales();

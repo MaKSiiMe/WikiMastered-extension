@@ -47,8 +47,7 @@
   font: 600 12px/1.45 system-ui, sans-serif;
 }
 
-/* Possession (« ✓ » : on l'a déjà ; « Nouvelle » : on ne l'a pas), devant le prix. Le badge peut avoir les couleurs
+/* Possession (« ✓ » vert : on l'a déjà ; point bleu : on ne l'a pas), devant le prix. Le badge peut avoir les couleurs
    de la rareté : la pastille garde les siennes. */
 .wme-badge[data-own="yes"]::before { content: "✓"; margin-right: 0.35em; color: #4ade80; font-weight: 800; }
-.wme-badge[data-own="no"]::before { content: "Nouvelle"; margin-right: 0.4em; padding: 0 0.3em; border-radius: 0.3em;
-  background: #2563eb; color: #fff; font-size: 0.8em; font-weight: 700; }
+.wme-badge[data-own="no"]::before { content: "●"; margin-right: 0.35em; color: #60a5fa; font-size: 0.75em; }
