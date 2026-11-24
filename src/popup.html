@@ -18,7 +18,9 @@
     label { display: block; margin: 6px 0; }
     .pulls { margin: 8px 0; padding: 6px 8px; border-radius: 6px; background: #ffffff0a; }
     a { color: #fde68a; }
-    #shared { padding: 0 12px 10px; }
+    #shared, #settings { padding: 0 12px 10px; }
+    input.small { width: 3.5em; margin: 0 2px; padding: 1px 4px; border-radius: 4px; border: 1px solid #ffffff26;
+      background: #ffffff0a; color: inherit; font: inherit; }
     #shared input[type=url], #shared input[type=password] { box-sizing: border-box; width: 100%; margin: 3px 0;
       padding: 4px 6px; border-radius: 6px; border: 1px solid #ffffff26; background: #ffffff0a; color: inherit; font: inherit; }
   </style>
@@ -26,6 +28,7 @@
 <body>
   <header><img src="../icons/icon-32.png" alt=""><b>WikiMastered · prix</b><small id="version"></small></header>
   <main id="main"><p class="muted">Lecture de la page…</p></main>
+  <section id="settings"></section>
   <section id="shared"></section>
   <script src="lib.js"></script>
   <script src="popup.js"></script>

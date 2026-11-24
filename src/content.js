@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, currentWeek, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -56,7 +56,8 @@
   };
 
   // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false };
+  // minSales : ventes sur 12 semaines à partir desquelles un prix est fiable (sinon « ≈ »).
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minSales: MIN_SALES };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const trades = new Map(); // id d'échange -> { id, sides } (src/lib.js, tradesIn)
@@ -609,9 +610,13 @@
       } else if (q) {
         const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
         const grey = Date.now() - entryPrices.at >= GREY_AFTER_MS;
-        [text, state, value] = [`≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
+        // Prix fiable (assez de ventes sur 12 semaines) : le chiffre seul ; sinon « ≈ », à prendre avec prudence.
+        const sure = reliable(q, settings.minSales);
+        [text, state, value] = [sure ? wb(q.avg) : `≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
         const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
-        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). ` +
+        const sales = sure === null ? ""
+          : ` ${q.sales12} vente(s) sur ${RECENT_WEEKS} semaines${sure ? "" : ` : prix incertain (fiable à partir de ${settings.minSales})`}.`;
+        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s).${sales} ` +
           `Relevé il y a ${ago(Date.now() - entryPrices.at)}${by}.${old}`;
       } else {
         const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
@@ -840,6 +845,10 @@
     } else if (message.type === "autoUnblockMarket") {
       settings.autoUnblockMarket = Boolean(message.on);
       store.set("settings", settings);
+    } else if (message.type === "minSales") {
+      settings.minSales = Math.min(50, Math.max(1, Math.round(Number(message.value)) || MIN_SALES));
+      store.set("settings", settings);
+      drawBadges();
     } else if (message.type === "clearPulls") {
       pullLog = emptyPullLog();
       store.set(PULLS_KEY, pullLog);
@@ -859,6 +868,7 @@
       badges: settings.badges,
       autoClickPack: settings.autoClickPack,
       autoUnblockMarket: settings.autoUnblockMarket,
+      minSales: settings.minSales,
       clickInfo,
       seen: seen.size,
       tiles: shownTiles,
