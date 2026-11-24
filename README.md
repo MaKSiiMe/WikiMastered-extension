@@ -11,7 +11,7 @@ En option, désactivée par défaut, elle peut aussi cliquer à ta place : ouvri
 | Version | Pour qui | Contenu |
 |---|---|---|
 | **v0** (en cours) | tout le monde | Le prix moyen sur chaque carte, le bilan d'un échange, le panneau de l'extension ; en 0.4, l'automatisation par clic optionnelle et le récap des paquets. |
-| v1 | le collectionneur | Prix des shiny, courbe de prix, tableau de bord de la collection, filtres, familles, liste de souhaits chiffrée ; Chrome Web Store et Firefox signé. |
+| v1 | le collectionneur | Courbe de prix, tableau de bord de la collection, filtres, familles, liste de souhaits chiffrée, échanges chiffrés ; Chrome Web Store et Firefox signé. |
 | v2 | l'investisseur | Synchronisée avec le bot [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : onglet « Bot », Stonks (profit réalisé et latent), trafic Wikipédia, alertes. |
 
 Le détail, case par case, avec les idées reprises des autres outils : [ROADMAP.md](ROADMAP.md).
@@ -43,9 +43,9 @@ Pour l'activer : coche la case, colle l'adresse du serveur (`https://….workers
 4. **Charger l'extension non empaquetée** et choisis le dossier qui contient `manifest.json`.
 5. Ouvre ou recharge [ta collection](https://www.wiki-masters.com/collection).
 
-Chrome affiche un avertissement « Unrecognized manifest key 'browser_specific_settings' » : c'est la ligne réservée à Firefox, sans effet sur Chrome.
+Depuis le dépôt, Chrome affiche un avertissement sur les lignes réservées à Firefox (`browser_specific_settings`, `sidebar_action`) : elles sont sans effet sur Chrome.
 
-Sans git : chaque version publiée a son archive `.zip` dans [Releases](https://github.com/MaKSiiMe/WikiMastered-extension/releases). Dézippe-la et choisis ce dossier à l'étape 4.
+Sans git : chaque version publiée a deux archives dans [Releases](https://github.com/MaKSiiMe/WikiMastered-extension/releases), une par navigateur. Dézippe `wikimastered-extension-<version>-chrome.zip` et choisis ce dossier à l'étape 4 (sans aucun avertissement).
 
 ### Mettre à jour (Chrome)
 
@@ -57,10 +57,10 @@ Chrome lit l'extension directement dans le dossier choisi : pas besoin de la sup
 
 Le numéro de version s'affiche en haut du panneau de l'extension : c'est le moyen de vérifier que la bonne version tourne.
 
-### Firefox (128 ou plus)
+### Firefox (140 ou plus)
 
 1. Ouvre `about:debugging#/runtime/this-firefox`.
-2. **Charger un module complémentaire temporaire…** et choisis le fichier `manifest.json` du dossier.
+2. **Charger un module complémentaire temporaire…** et choisis l'archive `wikimastered-extension-<version>-firefox.zip` d'une version publiée (ou le fichier `manifest.json` du dossier).
 3. Recharge la page du site.
 
 Firefox oublie une extension temporaire à sa fermeture : il faut la recharger à chaque démarrage, tant qu'elle n'est pas signée par Mozilla.
@@ -149,7 +149,7 @@ Points à retenir :
 
 ```sh
 npm test         # tests de src/lib.js et server/src/logic.js (Node 20 ou plus, aucune dépendance à installer)
-npm run build    # dist/wikimastered-extension-<version>.zip
+npm run build    # dist/wikimastered-extension-<version>-chrome.zip et -firefox.zip (un manifeste par navigateur)
 ```
 
 Publier une version : monter `version` dans `manifest.json` et `package.json`, fusionner, puis pousser l'étiquette `v<version>` (`git tag v0.4.0 && git push origin v0.4.0`). Le workflow [`release.yml`](.github/workflows/release.yml) teste, fabrique l'archive et crée la page de la version avec le `.zip`.
