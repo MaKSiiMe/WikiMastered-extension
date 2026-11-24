@@ -773,6 +773,100 @@ const WME = (() => {
     }
   }
 
+  /**
+   * Amis qui possèdent les cartes d'une page du catalogue du site (`/api/cards`, champ friendOwners : { carte:
+   * [{ username, rarities }] }). Le détail d'une entrée n'est pas documenté : un pseudo seul, ou un objet dont les
+   * raretés sont des codes ou des objets { rarity, starred? }. -> { carte: [{ username, rarities: [{ rarity, starred:
+   * true | false | null }], starred: true | false | null }] } ; starred null = le site ne dit pas si c'est un favori.
+   */
+  function friendOwnersIn(data) {
+    const out = {};
+    const raw = data && data.friendOwners;
+    if (!raw || typeof raw !== "object") return out;
+    const flag = (o) => (o && typeof o === "object" && typeof o.starred === "boolean" ? o.starred : null);
+    for (const [cardId, list] of Object.entries(raw)) {
+      if (!Array.isArray(list)) continue;
+      const owners = [];
+      for (const o of list) {
+        const username = typeof o === "string" ? o : o && (o.username || (o.user && o.user.username));
+        if (!username) continue;
+        const source = o && typeof o === "object" ? (Array.isArray(o.rarities) ? o.rarities : o.rarity ? [o.rarity] : []) : [];
+        const rarities = [];
+        for (const r of source) {
+          const rarity = String((r && typeof r === "object" ? r.rarity || r.snapshot_rarity : r) || "").toUpperCase();
+          if (rarity && !rarities.some((x) => x.rarity === rarity)) rarities.push({ rarity, starred: flag(r) });
+        }
+        owners.push({ username: String(username), rarities, starred: flag(o) });
+      }
+      if (owners.length) out[String(cardId)] = owners;
+    }
+    return out;
+  }
+
+  /**
+   * Qui, parmi mes amis, peut m'échanger une carte souhaitée : un exemplaire qui n'est pas en favori (le site interdit
+   * d'échanger un favori). owners : entrées de friendOwnersIn pour cette carte ; rowsOf(pseudo, raretés) -> ses
+   * exemplaires de la carte dans sa collection lue (lignes de friendRows), ou null si sa collection n'est pas lue dans
+   * ces raretés. La collection lue fait foi ; sinon ce que dit le site.
+   * -> [{ username, rarities (raretés échangeables ; toutes celles qu'il a si aucune), status: "free" | "locked" |
+   *      "unknown" }] : échangeables d'abord. Un ami dont la collection lue n'a plus la carte est retiré.
+   */
+  function wishOwners(owners, rowsOf = () => null) {
+    const byRank = (list) => [...new Set(list)].sort((a, b) => rank(b) - rank(a));
+    const out = [];
+    for (const o of owners || []) {
+      const rows = rowsOf(o.username, o.rarities.map((r) => r.rarity));
+      if (rows) {
+        if (!rows.length) continue;
+        const free = rows.filter((r) => !r[4]).map((r) => r[2]);
+        out.push({ username: o.username, rarities: byRank(free.length ? free : rows.map((r) => r[2])), status: free.length ? "free" : "locked" });
+        continue;
+      }
+      const known = o.rarities.length && o.rarities.every((r) => r.starred !== null);
+      const free = known ? o.rarities.filter((r) => !r.starred).map((r) => r.rarity) : [];
+      const status = known ? (free.length ? "free" : "locked") : o.starred === null ? "unknown" : o.starred ? "locked" : "free";
+      out.push({ username: o.username, rarities: byRank(free.length ? free : o.rarities.map((r) => r.rarity)), status });
+    }
+    const order = { free: 0, unknown: 1, locked: 2 };
+    return out.sort((a, b) => order[a.status] - order[b.status] || a.username.localeCompare(b.username, "fr", { sensitivity: "base" }));
+  }
+
+  /**
+   * Mes enchères au marché, d'après `/api/marketplace?…&mine=1` : selling (mes ventes), bidding (où je mise), won
+   * (gagnées), history (mes ventes terminées), 50 dernières de chaque, et maxConcurrentAuctions. me : mon identifiant,
+   * pour savoir si je suis en tête. Seules les ventes et mises encore ouvertes sont gardées dans selling et bidding.
+   * -> { selling, bidding, won, history: [{ id, cardId, title, rarity, shiny, price (mise actuelle, ou de départ),
+   *      hasBid, final, endAt, status, bidder, seller, leading }], max }
+   */
+  function myMarketIn(data, me = "", now = Date.now()) {
+    const map = (list) => (Array.isArray(list) ? list : []).filter((a) => a && ((a.card && a.card.id) || a.card_id)).map((a) => {
+      const c = a.card || {};
+      const bid = Number(a.current_bid) || 0;
+      return {
+        id: String(a.id || ""),
+        cardId: String(c.id || a.card_id),
+        title: String(c.wikipedia_title || c.title || a.card_id),
+        rarity: String(a.snapshot_rarity || c.rarity || "").toUpperCase(),
+        shiny: Boolean(a.is_shiny),
+        price: Number(a.effective_bid) || bid || Number(a.base_amount) || 0,
+        hasBid: bid > 0 || Boolean(a.current_bidder_id),
+        final: a.final_price === null || a.final_price === undefined ? null : Number(a.final_price),
+        endAt: Date.parse(a.end_at) || null,
+        status: String(a.status || ""),
+        bidder: String((a.current_bidder && a.current_bidder.username) || ""),
+        seller: String((a.seller && a.seller.username) || ""),
+        leading: Boolean(me) && a.current_bidder_id === me,
+      };
+    });
+    const open = (a) => (!a.status || a.status === "active") && (!a.endAt || a.endAt > now);
+    const d = data || {};
+    return {
+      selling: map(d.selling).filter(open).sort((a, b) => (a.endAt || Infinity) - (b.endAt || Infinity)),
+      bidding: map(d.bidding).filter(open).sort((a, b) => (a.endAt || Infinity) - (b.endAt || Infinity)),
+      won: map(d.won), history: map(d.history), max: Number(d.maxConcurrentAuctions) || null,
+    };
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -788,7 +882,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, familyProgress, familyCode, readFamilyCode, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, familyProgress, familyCode, readFamilyCode, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

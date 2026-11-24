@@ -365,3 +365,35 @@ test("familles : progression, coût des manquantes, code de partage", () => {
   assert.deepEqual(WME.readFamilyCode(code), { name: "Planètes", cards });
   assert.equal(WME.readFamilyCode("n'importe quoi"), null);
 });
+
+test("amis qui ont une carte souhaitée : catalogue du site, puis leur collection lue", () => {
+  const owners = WME.friendOwnersIn({ friendOwners: {
+    c1: [{ username: "Bob", rarities: ["ur", "C"] }, "Zoé", { username: "Ana", rarities: [{ rarity: "L", starred: true }] }],
+    c2: [{ username: "Bob", rarities: [{ rarity: "R", starred: false }, { rarity: "C", starred: true }] }],
+    c3: "illisible", c4: [{}] } });
+  assert.deepEqual(Object.keys(owners), ["c1", "c2"]);
+  assert.deepEqual(owners.c1[0], { username: "Bob", rarities: [{ rarity: "UR", starred: null }, { rarity: "C", starred: null }], starred: null });
+  assert.deepEqual(owners.c1[1], { username: "Zoé", rarities: [], starred: null });
+  // Rien de lu : ce que dit le site (favori inconnu pour Bob et Zoé, Ana n'a qu'un favori).
+  assert.deepEqual(WME.wishOwners(owners.c1).map((o) => [o.username, o.rarities, o.status]),
+    [["Bob", ["UR", "C"], "unknown"], ["Zoé", [], "unknown"], ["Ana", ["L"], "locked"]]);
+  assert.deepEqual(WME.wishOwners(owners.c2).map((o) => [o.rarities, o.status]), [[["R"], "free"]]);
+  // Collection de Bob lue : son UR est un favori, son C est libre ; Zoé a vendu la carte.
+  const rows = { Bob: [["x1", "c1", "UR", 1, 1, 0, 1], ["x2", "c1", "C", 2, 0, 0, 1]], "Zoé": [] };
+  assert.deepEqual(WME.wishOwners(owners.c1, (name) => rows[name] || null).map((o) => [o.username, o.rarities, o.status]),
+    [["Bob", ["C"], "free"], ["Ana", ["L"], "locked"]]);
+});
+
+test("mes enchères au marché : ventes et mises ouvertes, en tête ou non", () => {
+  const now = Date.parse("2026-11-25T12:00:00Z");
+  const a = (id, extra) => ({ id, card: { id: `c${id}`, wikipedia_title: `T${id}`, rarity: "R" }, end_at: "2026-11-25T13:00:00Z", status: "active", ...extra });
+  const m = WME.myMarketIn({
+    selling: [a(1, { base_amount: 100 }), a(2, { current_bid: 150, current_bidder_id: "u2", current_bidder: { username: "Léa" }, end_at: "2026-11-25T12:30:00Z" }),
+      a(3, { status: "settled_sold" })],
+    bidding: [a(4, { current_bid: 80, current_bidder_id: "me", snapshot_rarity: "sr" }), a(5, { current_bid: 90, current_bidder_id: "u9", end_at: "2026-11-25T11:00:00Z" })],
+    won: [a(6, { final_price: 75, status: "settled_sold" })], maxConcurrentAuctions: 10 }, "me", now);
+  assert.deepEqual(m.selling.map((x) => [x.id, x.price, x.hasBid, x.bidder]), [["2", 150, true, "Léa"], ["1", 100, false, ""]]);
+  assert.deepEqual(m.bidding.map((x) => [x.id, x.rarity, x.leading]), [["4", "SR", true]]);
+  assert.deepEqual([m.won[0].final, m.max, m.history.length], [75, 10, 0]);
+  assert.deepEqual(WME.myMarketIn(null), { selling: [], bidding: [], won: [], history: [], max: null });
+});

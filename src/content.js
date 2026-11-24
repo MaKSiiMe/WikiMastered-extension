@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -50,6 +50,7 @@
   const LIMITS_KEY = "wmLimitLog";      // refus du site, avec les lectures qui les ont précédés (addLimitEvent)
   const PULLS_KEY = "wmPulls";          // journal des paquets ouverts, à la main ou en auto (récap de la fenêtre)
   const PULLS_MAX = 10000;              // ~50 000 cartes, ~3 Mo : au-delà, les paquets les plus anciens sont oubliés
+  const THEME_KEY = "wmTheme"; // « light » ou « dark », relevé sur le site pour le panneau
   const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
   const OTHER_PULL_STATS_KEY = "wm_pull_stats_v1"; // compteurs de « WikiMasters - Prix moyen collection » (localStorage)
   const AUTO_PULL_WINDOW_MS = 15e3;     // un paquet ouvert moins de 15 s après un clic de src/click.js est « auto »
@@ -1117,10 +1118,67 @@
     return wishes;
   }
 
+  // Amis qui ont mes cartes souhaitées : la route du catalogue du site avec son filtre « Ma liste de souhaits »
+  // (wishlist=1), comme sa page « Toutes les cartes ». Chaque page de 50 cartes donne aussi friendOwners (les amis qui
+  // ont chaque carte) : on cherche mes souhaits chez mes amis, au lieu de lire leurs collections entières. Une page par
+  // seconde, autant de pages que de souhaits (25 au plus). Gardé 30 min.
+  let wishOwnersCache = null; // { at, owners: { carte: [...] }, given (le site a donné friendOwners) }
+  let wishOwnersReading = null;
+  let wishOwnersError = "";
+  let wishOwnersTried = 0; // dernière tentative : après un refus, pas de nouvel essai automatique avant 5 min
+  async function readWishOwners(force) {
+    if (!force && wishOwnersCache && Date.now() - wishOwnersCache.at < 30 * 60e3) return wishOwnersCache;
+    if (!wishOwnersReading) wishOwnersTried = Date.now();
+    wishOwnersReading ||= (async () => {
+      const wishes = await readWishlist(force);
+      const wanted = new Set(wishes.map((w) => w.id));
+      const owners = {};
+      let given = false;
+      const pages = Math.min(25, Math.ceil(wishes.length / 50) + 1);
+      for (let page = 1; page <= pages && wanted.size; page++) {
+        if (page > 1) await sleep(1000);
+        const response = await siteFetch(`${location.origin}/api/cards?page=${page}&sort=rarity&wishlist=1`, { credentials: "include" });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new Error(siteLimit(response.status, body) ? "le site limite les lectures : réessaie plus tard" : `catalogue refusé par le site (HTTP ${response.status})`);
+        }
+        const data = await response.json();
+        note(data);
+        noteOwnership("/api/cards", data);
+        if (data && data.friendOwners && typeof data.friendOwners === "object") given = true;
+        for (const [id, list] of Object.entries(friendOwnersIn(data))) if (wanted.has(id)) owners[id] = list;
+        if (!(Array.isArray(data && data.cards) && data.cards.length >= 50)) break;
+      }
+      wishOwnersCache = { at: Date.now(), owners, given };
+      wishOwnersError = "";
+      return wishOwnersCache;
+    })().catch((error) => {
+      wishOwnersError = String((error && error.message) || error);
+      throw error;
+    }).finally(() => {
+      wishOwnersReading = null;
+    });
+    return wishOwnersReading;
+  }
+
+  // Exemplaires d'une carte dans la collection lue d'un ami (Filtres), si elle couvre ces raretés ; sinon null.
+  const friendRowsOf = (cardId) => (username, rarities) => {
+    const f = friendCache.get(String(username).toLowerCase());
+    if (!f || Date.now() - f.at > COLLECTION_TTL_MS) return null;
+    if (!(rarities.length ? rarities : RARITIES).every((r) => f.rarities.includes(r))) return null;
+    return f.rows.filter((r) => r[1] === cardId);
+  };
+
   async function panelWishlist(refresh) {
     const wishes = await readWishlist(refresh);
     startSharedFill(refresh); // les souhaits font partie des cartes synchronisées (en arrière-plan)
-    return wishlistSummary(wishes, (id) => (usable(prices[id]) ? prices[id].q : null), (id) => owned.get(id));
+    const stale = !wishOwnersCache || Date.now() - wishOwnersCache.at > 30 * 60e3;
+    if (refresh || (stale && !(wishOwnersError && Date.now() - wishOwnersTried < 5 * 60e3))) readWishOwners(refresh).catch(() => {});
+    const summary = wishlistSummary(wishes, (id) => (usable(prices[id]) ? prices[id].q : null), (id) => owned.get(id));
+    const known = wishOwnersCache && wishOwnersCache.given ? wishOwnersCache.owners : null;
+    for (const item of summary.items) item.friends = known ? wishOwners(known[item.id], friendRowsOf(item.id)) : null;
+    return { ...summary, friends: { reading: Boolean(wishOwnersReading), at: wishOwnersCache && wishOwnersCache.at,
+      given: Boolean(wishOwnersCache && wishOwnersCache.given), error: wishOwnersError } };
   }
 
   async function loadWishPrices() {
@@ -1145,6 +1203,8 @@
     const isWished = (id) => wished.has(id);
     if (criteria.source && criteria.source !== "me") {
       const friend = friendCache.get(criteria.source.toLowerCase());
+      const needsCollection = criteria.duplicates || criteria.noImage || criteria.gif || (criteria.tags || []).length || criteria.untagged;
+      if (criteria.wished && !(friend && needsCollection)) return wishedAtFriend(criteria);
       if (!friend) throw new Error(`Collection de ${criteria.source} pas encore lue : clique sur « Lire sa collection ».`);
       if (friend.tagsMissing && ((criteria.tags || []).length || criteria.untagged)) throw new Error(`Le site n'a pas donné les étiquettes de ${friend.pseudo}.`);
       const result = filterCollection(friend.rows, friend.titles, cardPriceInfo, criteria, (copy) => friend.tags[copy] || [],
@@ -1156,6 +1216,71 @@
     if (collection.tagsError && ((criteria.tags || []).length || criteria.untagged)) throw new Error(`Étiquettes illisibles : ${collection.tagsError}. Relis la collection (onglet Collection).`);
     const cardTags = collection.cardTags || {};
     return filterCollection(collection.rows, collection.titles, cardPriceInfo, criteria, (copy) => cardTags[copy] || [], (id) => owned.get(id), isWished);
+  }
+
+  // « Dans ma liste de souhaits » chez un ami : on part de mes souhaits et on regarde lesquels il a (friendOwners du
+  // catalogue), sans lire sa collection. Si elle a été lue, elle dit en plus quels exemplaires sont des favoris.
+  async function wishedAtFriend(criteria) {
+    const pseudo = String(criteria.source);
+    const { owners, given } = await readWishOwners(false);
+    if (!given) throw new Error(`Le site n'a pas dit lesquels de tes amis ont tes souhaits : clique sur « Lire sa collection ».`);
+    const titles = Object.fromEntries((await readWishlist(false)).map((w) => [w.id, w.title]));
+    const rows = [];
+    const unsure = new Set();
+    for (const [id, list] of Object.entries(owners)) {
+      const own = list.filter((o) => o.username.toLowerCase() === pseudo.toLowerCase());
+      const [view] = wishOwners(own, friendRowsOf(id));
+      if (!view) continue;
+      if (view.status === "unknown") unsure.add(id);
+      // Rareté inconnue : une ligne quand même, « ? » (le site n'a dit que le pseudo).
+      for (const rarity of view.rarities.length ? view.rarities : ["?"]) rows.push([`${id}|${rarity}`, id, rarity, 1, view.status === "locked" ? 1 : 0, 0, 1]);
+    }
+    const priceInfo = (id, rarity) => (rarity === "?" ? { state: "unknown" } : cardPriceInfo(id, rarity));
+    const result = filterCollection(rows, titles, priceInfo, { ...criteria, wished: false }, () => [], (id) => owned.get(id));
+    for (const item of result.items) {
+      delete item.sellCopy;
+      item.copies = null; // le catalogue ne dit pas combien
+      item.unsure = unsure.has(item.id);
+    }
+    const age = ago(Date.now() - wishOwnersCache.at);
+    return { ...result, source: `${pseudo} : tes souhaits qu'il ou elle a (catalogue du site, lu il y a ${age}, sans lire sa collection)`, unsure: unsure.size };
+  }
+
+  // Mes enchères au marché (onglet Enchères) : la route que le site appelle sur sa page Marché, onglet « Mes
+  // enchères », avec les mêmes paramètres. Gardée 20 s : le panneau rafraîchit toutes les 5 s.
+  let mineCache = null;
+  let mineReading = null;
+  function readMarketMine(force) {
+    if (!force && mineCache && Date.now() - mineCache.at < 20e3) return Promise.resolve(mineCache);
+    mineReading ||= fetchMarketMine().finally(() => { mineReading = null; });
+    return mineReading;
+  }
+  async function fetchMarketMine() {
+    const response = await siteFetch(`${location.origin}/api/marketplace?page=1&limit=50&sort=recent&mine=1`, { credentials: "include" });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(siteLimit(response.status, body) ? "le site limite les lectures : réessaie dans quelques minutes" : `marché refusé par le site (HTTP ${response.status})`);
+    }
+    const data = await response.json();
+    const access = await store.get(SUPABASE_KEY, null);
+    const me = access ? (await session(access.base).catch(() => ({}))).userId || "" : "";
+    // Solde de WikiBidous : la route de la pastille du site.
+    const wallet = await siteFetch(`${location.origin}/api/wikibidous`, { credentials: "include" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const balance = wallet && Number.isFinite(Number(wallet.balance)) ? Number(wallet.balance) : null;
+    mineCache = { at: Date.now(), balance, ...myMarketIn(data, me) };
+    return mineCache;
+  }
+
+  // Chaque enchère avec la cote de sa carte dans sa rareté (prix manquants demandés en arrière-plan).
+  async function panelMarket(force) {
+    const m = await readMarketMine(force);
+    const quoted = (a) => {
+      if (a.shiny) return { ...a, quote: null };
+      if (!usable(prices[a.cardId])) want(a.cardId, "background", a.rarity);
+      return { ...a, quote: cardPrice(a.cardId, a.rarity) };
+    };
+    return { at: m.at, max: m.max, balance: m.balance, selling: m.selling.map(quoted), bidding: m.bidding.map(quoted),
+      won: m.won.slice(0, 15).map(quoted), history: m.history.slice(0, 15).map(quoted) };
   }
 
   // Étiquettes pour les filtres : les miennes (lues avec la collection) ou celles d'un ami lu. -> { id: nom }
@@ -1568,6 +1693,7 @@
           .then((f) => ({ ok: true, pseudo: f.pseudo, copies: f.rows.length, truncated: f.truncated }))
         : message.action === "wishlist" ? panelWishlist(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "loadWishPrices" ? loadWishPrices().then((count) => ({ ok: true, count }))
+        : message.action === "market" ? panelMarket(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
           : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
       work.catch((error) => ({ ok: false, error: String((error && error.message) || error) })).then(reply);
       return true;
@@ -1675,6 +1801,14 @@
       for (const [id, rarity, shiny, price] of pack.cards) if (!Number.isFinite(price) && !shiny) want(id, "background", rarity);
     }
   })();
+
+  // Thème du site (classe « light » sur <html>, sombre sinon) : le panneau le suit (src/panel.js).
+  const noteTheme = () => {
+    const theme = document.documentElement.classList.contains("light") ? "light" : "dark";
+    store.get(THEME_KEY, "").then((saved) => saved !== theme && store.set(THEME_KEY, theme));
+  };
+  noteTheme();
+  new MutationObserver(noteTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
   // Prêt à écouter : src/inject.js renvoie les réponses du site arrivées avant le démarrage de ce script.
   window.postMessage({ source: "wme-content", type: "ready" }, location.origin);
