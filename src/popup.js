@@ -41,10 +41,62 @@ function render(state) {
     h("label", {},
       h("input", { type: "checkbox", checked: state.badges, on: { change: async (e) => render(await ask("badges", { on: e.target.checked })) } }),
       " Badges de prix sur les cartes"),
+    h("label", {},
+      h("input", {
+        type: "checkbox",
+        checked: Boolean(state.autoClickPack),
+        on: { change: async (e) => render(await ask("autoClickPack", { on: e.target.checked })) },
+      }),
+      " Ouverture auto des packs par clic (/pulls)"),
+    h("label", {},
+      h("input", {
+        type: "checkbox",
+        checked: Boolean(state.autoUnblockMarket),
+        on: { change: async (e) => render(await ask("autoUnblockMarket", { on: e.target.checked })) },
+      }),
+      " Tentative de déblocage marché (/collection)"),
+    clickStatus(state),
+    pullsRecap(state.pulls),
     h("button", { on: { click: async () => render(await ask("reread")) } }, "Relire tous les prix"),
     h("p", { className: "muted" },
-      "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté. " +
-      "Lecture seule : l'extension ne mise et ne vend jamais."));
+      "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté."));
+}
+
+// Récap des paquets ouverts, à la main et en auto (src/content.js, pullRecap de src/lib.js), s'il y en a. La
+// répartition compte aussi les cartes reprises de l'autre extension (« earlier »), dont on ne connaît pas le prix.
+// Valeur = prix moyen de chaque carte au moment de l'ouverture ; un shiny n'a pas de prix et n'y compte pas.
+function pullsRecap(recap) {
+  if (!recap || !(recap.packs || recap.earlier)) return null;
+  const total = recap.cards + recap.earlier;
+  const percent = (n) => (n / total * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+  const order = (r) => (WME.rank(r) < 0 ? -1 : WME.rank(r)); // de L à C comme sur le site, raretés inconnues à la fin
+  const rarities = Object.entries(recap.byRarity).sort(([a], [b]) => order(b) - order(a))
+    .map(([r, n]) => `${r} ${n.toLocaleString("fr-FR")} (${percent(n)} %)`).join(" · ");
+  const since = recap.since && new Date(recap.since).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+  return h("div", { className: "pulls" },
+    h("p", {}, h("b", {}, "Paquets ouverts"), ` · ${total.toLocaleString("fr-FR")} carte(s)`),
+    h("p", { className: "muted" }, rarities + (recap.shiny ? ` · ✦ ${recap.shiny} shiny` : "")),
+    recap.earlier > 0 && h("p", { className: "muted" },
+      `Dont ${recap.earlier.toLocaleString("fr-FR")} carte(s) d'avant, reprises de l'extension « Prix moyen collection » ` +
+      "(sans prix ni détail)."),
+    recap.packs > 0 && h("p", {},
+      `Depuis le ${since} : ${recap.packs} paquet(s) · ${recap.cards} carte(s) · ≈ ${wb(recap.value)} WB`),
+    recap.packs > 0 && h("p", { className: "muted" }, `${recap.auto} en auto · ${recap.manual} à la main`),
+    recap.missing > 0 && h("p", { className: "muted" }, `${recap.missing} carte(s) sans prix (shiny, aucune vente ou pas encore lu)`),
+    recap.best.length > 0 && h("p", { className: "muted" },
+      "Meilleurs tirages : " + recap.best.map((c) => `${c.title} ${c.rarity} ≈ ${wb(c.price)}`).join(" · ")),
+    h("button", { on: { click: async () => render(await ask("clearPulls")) } }, "Remettre le récap à zéro"));
+}
+
+// L'état de l'automatisation par clic (src/click.js), seulement si l'une des deux cases est cochée.
+function clickStatus(state) {
+  const info = state.clickInfo;
+  if (!info || !(state.autoClickPack || state.autoUnblockMarket)) return null;
+  const notes = [
+    info.challengeVisible && "vérification affichée",
+    info.userQuiet ? "joueur inactif" : "joueur actif : pas de changement de page",
+  ].filter(Boolean);
+  return h("p", { className: "muted" }, `Automatisation : ${info.status} · ${notes.join(" · ")}`);
 }
 
 // Les compteurs suivent l'arrivée des prix tant que la fenêtre est ouverte.

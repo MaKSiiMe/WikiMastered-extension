@@ -133,6 +133,128 @@ const WME = (() => {
     return { sides, gain: sides[1].total - sides[0].total };
   }
 
+  /**
+   * Journal des paquets ouverts, gardé dans chrome.storage.local sous une forme compacte pour tenir des dizaines de
+   * milliers de cartes : chaque titre n'est écrit qu'une fois (titles), une carte tirée est un petit tableau.
+   * { titles: { "<id>": "Napoléon" }, packs: [{ at, auto, cards: [[id, rarity, shiny (0|1), price (null tant
+   *   qu'inconnu)]] }] } ; packs du plus ancien au plus récent, auto = ouvert par l'automatisation (sinon à la main).
+   */
+  const emptyPullLog = () => ({ titles: {}, packs: [] });
+
+  /** Ajoute un paquet ({ at, auto, cards: [{ id, title, rarity, shiny }] }) ; au-delà de max, oublie les plus anciens. */
+  function addPull(log, { at, auto, cards }, max) {
+    const titles = { ...log.titles };
+    for (const c of cards) titles[c.id] = c.title;
+    let packs = [...log.packs, { at, auto: Boolean(auto), cards: cards.map((c) => [c.id, c.rarity, c.shiny ? 1 : 0, null]) }];
+    if (packs.length > max) {
+      packs = packs.slice(-max);
+      const kept = new Set(packs.flatMap((pack) => pack.cards.map(([id]) => id)));
+      for (const id of Object.keys(titles)) if (!kept.has(id)) delete titles[id]; // titres des cartes oubliées
+    }
+    return { titles, packs };
+  }
+
+  /** Une carte du journal -> { id, title, rarity, shiny, price } (price : null tant qu'inconnu). */
+  const pulledCard = (log, [id, rarity, shiny, price]) =>
+    ({ id, title: log.titles[id] || id, rarity, shiny: Boolean(shiny), price: Number.isFinite(price) ? price : null });
+
+  /**
+   * Fige dans le journal le prix de chaque carte tirée dès que `priceOf(card)` le connaît : le récap garde la valeur
+   * au moment de l'ouverture, et une carte chiffrée n'est plus redemandée. Modifie le journal ; -> true si changé.
+   */
+  function settlePullPrices(log, priceOf) {
+    let changed = false;
+    for (const pack of log.packs) {
+      for (const raw of pack.cards) {
+        if (Number.isFinite(raw[3])) continue;
+        const price = priceOf(pulledCard(log, raw));
+        if (Number.isFinite(price)) {
+          raw[3] = price;
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+
+  /** Rareté pour la répartition du récap : tout ce qui commence par L (« L+ », « L✦ »…) compte en L. */
+  const recapRarity = (rarity) => {
+    const code = String(rarity || "").toUpperCase();
+    return code.startsWith("L") ? "L" : code || "?";
+  };
+
+  /**
+   * Point de départ repris des compteurs d'une autre extension (« WikiMasters - Prix moyen collection », clé
+   * wm_pull_stats_v1 du localStorage du site : { counts: { L: 6, UR: 55, … }, updatedAt }). Les cartes que notre
+   * journal a déjà notées sont retirées : les deux extensions ont vu les mêmes paquets, elles compteraient deux fois.
+   * -> { C: 8951, … } (raretés à 0 omises), ou null si `other` n'est pas lisible.
+   */
+  function pullBaseline(other, log) {
+    if (!other || typeof other.counts !== "object" || !other.counts) return null;
+    const counts = {};
+    for (const [rarity, n] of Object.entries(other.counts)) {
+      const r = recapRarity(rarity);
+      counts[r] = (counts[r] || 0) + Math.max(0, Math.floor(Number(n) || 0));
+    }
+    for (const pack of log.packs) {
+      for (const [, rarity] of pack.cards) {
+        const r = recapRarity(rarity);
+        if (counts[r]) counts[r] -= 1;
+      }
+    }
+    return Object.fromEntries(Object.entries(counts).filter(([, n]) => n > 0));
+  }
+
+  /**
+   * Récap du journal. Le prix figé d'une carte compte d'abord ; sinon `priceOf(card)` -> nombre, ou null (shiny,
+   * aucune vente, pas encore lu). `earlier` = cartes comptées avant le journal, par rareté (pullBaseline) : elles
+   * entrent dans la répartition, pas dans la valeur (on ne sait pas lesquelles c'étaient).
+   * -> { packs, auto, manual, cards, since, earlier (total de `earlier`), byRarity: { C: 3, R: 1, … } (de C à L,
+   *      puis les raretés inconnues ; journal + earlier), shiny, value, missing (cartes sans prix), best (les 3 cartes
+   *      les plus chères, avec leur price) }
+   */
+  function pullRecap(log, priceOf, earlier = {}) {
+    const byRarity = {};
+    for (const [rarity, n] of Object.entries(earlier)) byRarity[recapRarity(rarity)] = (byRarity[recapRarity(rarity)] || 0) + n;
+    const priced = [];
+    let cards = 0;
+    let auto = 0;
+    let shiny = 0;
+    let value = 0;
+    let missing = 0;
+    for (const pack of log.packs) {
+      if (pack.auto) auto += 1;
+      for (const raw of pack.cards) {
+        const c = pulledCard(log, raw);
+        cards += 1;
+        if (c.shiny) shiny += 1;
+        const rarity = recapRarity(c.rarity);
+        byRarity[rarity] = (byRarity[rarity] || 0) + 1;
+        const price = c.price ?? priceOf(c);
+        if (Number.isFinite(price)) {
+          value += price;
+          priced.push({ ...c, price });
+        } else {
+          missing += 1;
+        }
+      }
+    }
+    const order = (r) => (rank(r) < 0 ? RARITIES.length : rank(r));
+    return {
+      packs: log.packs.length,
+      auto,
+      manual: log.packs.length - auto,
+      cards,
+      since: log.packs.length ? log.packs[0].at : null,
+      earlier: Object.values(earlier).reduce((sum, n) => sum + n, 0),
+      byRarity: Object.fromEntries(Object.entries(byRarity).sort(([a], [b]) => order(a) - order(b))),
+      shiny,
+      value,
+      missing,
+      best: priced.sort((a, b) => b.price - a.price).slice(0, 3),
+    };
+  }
+
   /** 1250 -> « 1 250 », 12500 -> « 12,5 k » : court, pour un badge. */
   function wb(n) {
     if (!Number.isFinite(n)) return "?";
@@ -140,7 +262,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, wb };
+  return { RARITIES, rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

@@ -5,15 +5,13 @@
 //    une requête à la fois, et le garde 6 h.
 // 3. Il pose un badge « ≈ 1 250 » sur chaque carte de la page, retrouvée par son titre, et le bilan d'un échange
 //    affiché (ce que chaque côté donne).
-// 4. Il répond à la fenêtre de l'extension (src/popup.js, clic sur l'icône ou Alt+Maj+W) : compteurs et réglages.
-//
-// Lecture seule : uniquement des requêtes GET, les mêmes que le site fait quand tu ouvres la fiche d'une carte.
-// Aucun clic, aucune mise, aucune vente.
+// 4. Il coordonne les réglages d'automatisation par clic (src/click.js, dans le même monde isolé) et répond à la
+//    fenêtre de l'extension (src/popup.js, clic sur l'icône ou Alt+Maj+W) : compteurs, statut clic et réglages.
 (() => {
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, wb } = WME;
+  const { rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -25,6 +23,11 @@
   const REQUEST_GAP_MS = 500;           // au moins 0,5 s entre deux requêtes de l'extension (~30 s pour 50 cartes)…
   const REQUEST_JITTER_MS = 300;        // … plus un délai au hasard, pour ne pas taper en rythme régulier
   const RATE_LIMIT_PAUSE_MS = 60e3;     // le site répond 429 (trop de requêtes) : pause d'une minute
+  const PULLS_KEY = "wmPulls";          // journal des paquets ouverts, à la main ou en auto (récap de la fenêtre)
+  const PULLS_MAX = 10000;              // ~50 000 cartes, ~3 Mo : au-delà, les paquets les plus anciens sont oubliés
+  const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
+  const OTHER_PULL_STATS_KEY = "wm_pull_stats_v1"; // compteurs de « WikiMasters - Prix moyen collection » (localStorage)
+  const AUTO_PULL_WINDOW_MS = 15e3;     // un paquet ouvert moins de 15 s après un clic de src/click.js est « auto »
 
   // Firefox : `content.fetch` envoie la requête comme la page elle-même (cookies de session compris). Chrome n'a pas
   // `content` : le fetch du content script part déjà depuis la page.
@@ -37,10 +40,13 @@
     set: (key, value) => chrome.storage.local.set({ [key]: value }),
   };
 
-  let settings = { badges: true };
+  // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const trades = new Map(); // id d'échange -> { id, sides } (src/lib.js, tradesIn)
+  let pullLog = WME.emptyPullLog(); // paquets ouverts : { titles, packs } (src/lib.js, addPull)
+  let pullBaselineEntry = null; // { at, counts } une fois repris de l'autre extension (ou remis à zéro)
 
   // ------------------------------------------------------------------ requêtes au site, une à la fois
   let lastRequest = 0;
@@ -410,22 +416,88 @@
     if (!mutations.every(ourChange)) scheduleBadges();
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
 
+  // ------------------------------------------------------------------ récap des paquets ouverts
+  // src/inject.js signale chaque ouverture réussie (« pack-opened », avec la réponse du site). Tous les paquets sont
+  // notés : « auto » si src/click.js vient de cliquer, sinon ouvert à la main. Ce script est le seul à écrire le
+  // journal : deux écrivains se marcheraient dessus (l'un écraserait le paquet ajouté par l'autre).
+  // Format compact du journal : voir addPull dans src/lib.js.
+  window.addEventListener("message", async (event) => {
+    if (event.source !== window || !event.data || event.data.source !== "wme-click") return;
+    if (event.data.type !== "pack-opened") return;
+    await ready; // le journal enregistré d'abord : sinon ce paquet l'écraserait
+    const clickState = typeof window.__wmeClickState === "function" ? window.__wmeClickState() : null;
+    const auto = Boolean(clickState && Date.now() - clickState.autoClickAt <= AUTO_PULL_WINDOW_MS);
+    const cards = cardsIn(event.data.data);
+    pullLog = addPull(pullLog, { at: Date.now(), auto, cards }, PULLS_MAX);
+    store.set(PULLS_KEY, pullLog);
+    for (const c of cards) if (!c.shiny) want(c.id);
+  });
+
+  // Fige les prix connus dans le journal (settlePullPrices, src/lib.js) et l'enregistre s'il a changé.
+  function settlePulls() {
+    if (settlePullPrices(pullLog, priceOf)) store.set(PULLS_KEY, pullLog);
+  }
+
+  // Reprend une seule fois les compteurs de l'autre extension, s'ils sont là. Ils vivent dans le localStorage du
+  // site, que ce content script partage avec la page (mais seulement sur www.wiki-masters.com, où elle tourne) : tant
+  // qu'ils sont introuvables, on réessaie au prochain chargement. Une fois repris, ils ne sont plus relus : elle
+  // continue de compter les mêmes paquets que nous.
+  function importPullBaseline() {
+    if (pullBaselineEntry) return;
+    let other = null;
+    try {
+      other = JSON.parse(localStorage.getItem(OTHER_PULL_STATS_KEY) || "null");
+    } catch (_) {
+      return; // illisible : on n'invente rien
+    }
+    const counts = pullBaseline(other, pullLog);
+    if (!counts) return;
+    pullBaselineEntry = { at: Date.now(), counts };
+    store.set(PULL_BASELINE_KEY, pullBaselineEntry);
+  }
+
+  // Plusieurs onglets du site ouverts : chacun garde le journal à jour quand un autre l'écrit.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
+    if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
+  });
+
   // ------------------------------------------------------------------ fenêtre de l'extension (src/popup.js)
   // La fenêtre ouverte par l'icône vit dans le monde de l'extension : elle ne voit pas la page. Elle demande donc
-  // l'état à ce script par chrome.runtime, et lui transmet les réglages.
+  // l'état à ce script par chrome.runtime, et lui transmet les réglages (badges et automatisations par clic).
+  // clickInfo est lu depuis src/click.js via window.__wmeClickState(), car les deux scripts partagent le même
+  // monde isolé (« document_idle »).
   chrome.runtime.onMessage.addListener((message, _sender, reply) => {
     if (!message || typeof message.type !== "string") return;
     if (message.type === "badges") {
       settings.badges = Boolean(message.on);
       store.set("settings", settings);
       drawBadges();
+    } else if (message.type === "autoClickPack") {
+      settings.autoClickPack = Boolean(message.on);
+      store.set("settings", settings);
+    } else if (message.type === "autoUnblockMarket") {
+      settings.autoUnblockMarket = Boolean(message.on);
+      store.set("settings", settings);
+    } else if (message.type === "clearPulls") {
+      pullLog = emptyPullLog();
+      store.set(PULLS_KEY, pullLog);
+      // Repartir de rien, y compris les cartes d'avant : gardé vide (pas supprimé) pour ne pas les reprendre.
+      pullBaselineEntry = { at: Date.now(), counts: {} };
+      store.set(PULL_BASELINE_KEY, pullBaselineEntry);
     } else if (message.type === "reread") {
       prices = {};
       store.set(PRICES_KEY, prices);
       drawBadges();
     }
+    const clickInfo = typeof window.__wmeClickState === "function" ? window.__wmeClickState() : null;
+    settlePulls();
     reply({
       badges: settings.badges,
+      autoClickPack: settings.autoClickPack,
+      autoUnblockMarket: settings.autoUnblockMarket,
+      clickInfo,
       seen: seen.size,
       tiles: shownTiles,
       value: shownValue,
@@ -433,6 +505,7 @@
       waiting: queue.size,
       paused: pausedUntil > Date.now(),
       trades: shownTrades,
+      pulls: pullRecap(pullLog, priceOf, (pullBaselineEntry && pullBaselineEntry.counts) || {}),
     });
   });
 
@@ -440,11 +513,31 @@
   const ready = (async () => {
     settings = { ...settings, ...(await store.get("settings", {})) };
     prices = await store.get(PRICES_KEY, {});
+    const storedPulls = await store.get(PULLS_KEY, null);
+    if (Array.isArray(storedPulls)) {
+      // Premier format (essais de la 0.4, packs auto seulement) : converti une fois au format compact.
+      for (const pull of storedPulls) pullLog = addPull(pullLog, { ...pull, auto: true }, PULLS_MAX);
+      settlePullPrices(pullLog, (c) => {
+        const old = storedPulls.flatMap((p) => p.cards).find((o) => o.id === c.id && o.rarity === c.rarity && !o.shiny);
+        return old && Number.isFinite(old.price) ? old.price : null;
+      });
+      store.set(PULLS_KEY, pullLog);
+    } else if (storedPulls && Array.isArray(storedPulls.packs)) {
+      pullLog = storedPulls;
+    }
     for (const [id, entry] of Object.entries(prices)) {
       if (!entry || Date.now() - entry.at > PRICE_KEEP_MS) delete prices[id];
     }
     chrome.storage.local.remove(["friends", "prices"]); // 0.1 : liste des amis, et cotes calculées autrement
     scheduleBadges();
+    pullBaselineEntry = await store.get(PULL_BASELINE_KEY, null);
+    importPullBaseline();
+    // Cartes tirées pas encore chiffrées (page fermée avant la réponse du site) : prix déjà en mémoire d'abord, les
+    // autres sont redemandés au site.
+    settlePulls();
+    for (const pack of pullLog.packs) {
+      for (const [id, , shiny, price] of pack.cards) if (!Number.isFinite(price) && !shiny) want(id);
+    }
   })();
 
   // Prêt à écouter : src/inject.js renvoie les réponses du site arrivées avant le démarrage de ce script.
