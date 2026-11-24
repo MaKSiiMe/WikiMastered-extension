@@ -35,11 +35,72 @@ const WME = (() => {
     return out;
   }
 
-  /** Lundi (UTC) de la semaine en cours, « 2026-11-23 » : une cote d'une semaine plus ancienne est « reportée ». */
-  function currentWeek(now = new Date()) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // Semaines du site : elles commencent le lundi, jour calendaire de Paris (relevé par LeadOn/Wikimasters-Toolbox,
+  // core/prices.js : c'est la clé `start` de price-history). Les mois aussi suivent le calendrier de Paris.
+  const PARIS_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" });
+  const parisDay = (date) => PARIS_DAY.format(date); // « 2026-11-24 »
+  function weekStart(date) {
+    const d = new Date(`${parisDay(date)}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
     return d.toISOString().slice(0, 10);
+  }
+
+  /** Lundi (Paris) de la semaine en cours, « 2026-11-23 » : une cote d'une semaine plus ancienne est « reportée ». */
+  const currentWeek = (now = new Date()) => weekStart(now);
+
+  /** La route /sales renvoie au plus SALES_LIMIT ventes : en dessous, ce sont toutes les ventes de la carte. */
+  const SALES_LIMIT = 5;
+
+  /**
+   * Historique au format de price-history, reconstitué à partir des ventes de /api/marketplace/cards/{id}/sales
+   * (`recent: [{ final_price, settled_at, rarity }]`, toutes raretés). Exact seulement si la liste est complète
+   * (moins de SALES_LIMIT ventes, `salesComplete`) : c'est alors toute l'histoire de la carte. Même découpage que le
+   * site (semaines et mois de Paris), moyennes arrondies comme lui. Méthode de LeadOn/Wikimasters-Toolbox.
+   * -> { computed_at, by_rarity: { R: { weekly: [{ start, avg, min, max, count }], monthly: [...] } } }
+   */
+  function historyFromSales(recent, now = Date.now()) {
+    const byRarity = {};
+    for (const sale of Array.isArray(recent) ? recent : []) {
+      const rarity = String((sale && sale.rarity) || "").toUpperCase();
+      const price = Number(sale && sale.final_price);
+      const at = Date.parse(sale && sale.settled_at);
+      if (rank(rarity) < 0 || !Number.isFinite(price) || price < 0 || !Number.isFinite(at)) continue;
+      const date = new Date(at);
+      const r = (byRarity[rarity] ||= { weekly: new Map(), monthly: new Map() });
+      for (const [map, key] of [[r.weekly, weekStart(date)], [r.monthly, `${parisDay(date).slice(0, 7)}-01`]]) {
+        const b = map.get(key) || map.set(key, { sum: 0, min: price, max: price, count: 0 }).get(key);
+        b.sum += price;
+        b.min = Math.min(b.min, price);
+        b.max = Math.max(b.max, price);
+        b.count += 1;
+      }
+    }
+    const buckets = (map) => [...map].sort(([a], [b]) => a.localeCompare(b))
+      .map(([start, b]) => ({ start, avg: Math.round(b.sum / b.count), min: b.min, max: b.max, count: b.count }));
+    const out = {};
+    for (const [rarity, r] of Object.entries(byRarity)) out[rarity] = { weekly: buckets(r.weekly), monthly: buckets(r.monthly) };
+    return { computed_at: new Date(now).toISOString(), by_rarity: out };
+  }
+
+  /** Réponse de /sales qui contient toutes les ventes de la carte (moins de SALES_LIMIT). */
+  const salesComplete = (data) => Boolean(data && Array.isArray(data.recent) && data.recent.length < SALES_LIMIT);
+
+  /** Ventes connues d'une carte, toutes raretés (mois, sinon semaines, de price-history). */
+  function totalSales(history) {
+    let total = 0;
+    for (const series of Object.values((history && history.by_rarity) || {})) {
+      const points = (series && (Array.isArray(series.monthly) && series.monthly.length ? series.monthly : series.weekly)) || [];
+      for (const p of points) total += Math.max(0, Number(p && p.count) || 0);
+    }
+    return total;
+  }
+
+  /** Âge court : « 12 min », « 5 h », « 2 j ». */
+  function ago(ms) {
+    const min = Math.max(0, Math.round(ms / 60e3));
+    if (min < 60) return `${min} min`;
+    if (min < 48 * 60) return `${Math.round(min / 60)} h`;
+    return `${Math.round(min / 1440)} j`;
   }
 
   /** Une carte telle que le site la renvoie -> { id, title, rarity, shiny } ; null si elle n'est pas lisible. */
@@ -294,7 +355,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, currentWeek, weekStart, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

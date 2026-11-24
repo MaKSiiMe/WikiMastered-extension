@@ -30,6 +30,8 @@
 
 /* Badge au style de la rareté : estompé tant que le prix n'est pas connu. */
 .wme-badge[data-styled][data-state="wait"], .wme-badge[data-styled][data-state="none"] { opacity: 0.6; }
+/* Prix de plus de 6 h, en cours de relecture : grisé. */
+.wme-badge[data-state="old"] { opacity: 0.6; filter: grayscale(0.7); }
 
 /* Bilan d'un échange, juste sous ses cartes. */
 .wme-trade {

@@ -1,8 +1,9 @@
 // Content script : tourne sur chaque page de wiki-masters.com, dans un monde isolé (il voit le DOM, pas le JS du site).
 //
 // 1. Il reçoit de src/inject.js les réponses de l'API du site, et note les cartes affichées.
-// 2. Il demande le prix moyen de chacune (historique des prix, une requête par carte : le site n'en a pas d'autre),
-//    une requête à la fois, et le garde 6 h. Avec les prix partagés (option), il demande d'abord au serveur commun
+// 2. Il demande le prix moyen de chacune (une requête par carte : le site n'a pas de route groupée), par deux routes
+//    qui ont chacune leur quota (historique des prix, ou dernières ventes pour une carte peu vendue), les cartes à
+//    l'écran d'abord, et le garde 6 h ; plus vieux, jusqu'à 7 jours, il reste affiché grisé le temps d'être relu. Avec les prix partagés (option), il demande d'abord au serveur commun
 //    (server/, via src/background.js) les lectures des autres participants, et y dépose les siennes.
 // 3. Il pose un badge « ≈ 1 250 » sur chaque carte de la page, retrouvée par son titre, et le bilan d'un échange
 //    affiché (ce que chaque côté donne).
@@ -12,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb } = WME;
+  const { rank, norm, quotes, currentWeek, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -25,10 +26,12 @@
   const REQUEST_JITTER_MS = 300;        // … plus un délai au hasard, pour ne pas taper en rythme régulier
   const RATE_LIMIT_PAUSE_MS = 60e3;     // le site répond 429 (trop de requêtes) sans Retry-After : pause d'une minute
   const LIMIT_PAUSE_MS = 10 * 60e3;     // 403 automation_limit ou vérification demandée : pause de 10 min
-  const READ_BUDGET = 80;               // lectures d'historique de prix par fenêtre de 10 min, tous onglets confondus :
+  const READ_BUDGET = 80;               // lectures par route et par fenêtre de 10 min, tous onglets confondus :
   const READ_WINDOW_MS = 10 * 60e3;     // le site bloque vers 90-100 (et le bot WikiMastered lit sur le même compte)
-  const READS_KEY = "wmPriceReads";     // dates des lectures récentes, partagées entre onglets (readBudget)
-  const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause demandée par le site, partagée entre onglets
+  const READS_KEY = "wmPriceReads";     // dates des lectures récentes de price-history, partagées entre onglets
+  const SALES_READS_KEY = "wmSalesReads"; // … de /sales, qui a son propre quota (readBudget)
+  const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause de toutes les lectures, partagée entre onglets
+  const ROUTE_PAUSE_KEY = "wmRoutePause"; // { history: { until, reason }, sales: … } : quota d'une seule route atteint
   const PULLS_KEY = "wmPulls";          // journal des paquets ouverts, à la main ou en auto (récap de la fenêtre)
   const PULLS_MAX = 10000;              // ~50 000 cartes, ~3 Mo : au-delà, les paquets les plus anciens sont oubliés
   const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
@@ -58,11 +61,21 @@
   let pullLog = WME.emptyPullLog(); // paquets ouverts : { titles, packs } (src/lib.js, addPull)
   let pullBaselineEntry = null; // { at, counts } une fois repris de l'autre extension (ou remis à zéro)
 
-  // ------------------------------------------------------------------ requêtes au site, une à la fois
-  let lastRequest = 0;
-  let pausedUntil = 0;
+  // ------------------------------------------------------------------ requêtes au site
+  // Deux routes donnent le prix d'une carte, chacune avec son propre quota sur le site :
+  //  - history : /price-history, toutes les ventes par semaine et par rareté (ce que le site affiche) ;
+  //  - sales : /sales, les 5 dernières ventes. Pour une carte vendue moins de 5 fois en tout, c'est toute son histoire,
+  //    et on en refait exactement le même historique (historyFromSales, src/lib.js). Les cartes communes (C, PC, R)
+  //    passent presque toutes par là. Idée de LeadOn/Wikimasters-Toolbox.
+  // Chaque route a son budget (READ_BUDGET par READ_WINDOW_MS, partagé entre onglets), sa cadence, et sa pause quand
+  // le site la coupe (automation_limit). Une vérification humaine ou un 429 arrêtent les deux.
+  const ROUTES = {
+    history: { label: "historiques", readsKey: READS_KEY, lock: "wme-price-reads" },
+    sales: { label: "ventes", readsKey: SALES_READS_KEY, lock: "wme-sales-reads" },
+  };
+  for (const r of Object.values(ROUTES)) Object.assign(r, { last: 0, pausedUntil: 0, reason: "", reads: 0, waiting: false });
+  let pausedUntil = 0; // pause de toutes les routes
   let pauseReason = "";
-  let recentReads = 0; // lectures dans la fenêtre de 10 min, à la dernière vérification du budget (fenêtre)
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   // Une pause demandée par le site vaut pour tous les onglets : le quota est celui du compte, pas de l'onglet.
@@ -74,48 +87,71 @@
     store.set(PAUSE_KEY, { until, reason });
   }
 
-  // Réserve une lecture dans le budget partagé (READ_BUDGET par READ_WINDOW_MS), en attendant s'il est épuisé. Le
-  // verrou (Web Locks, commun aux onglets du site) empêche deux onglets de prendre la même place.
-  async function takeReadSlot() {
+  function pauseRoute(route, ms, reason) {
+    const r = ROUTES[route];
+    const until = Date.now() + ms;
+    if (until <= r.pausedUntil) return;
+    [r.pausedUntil, r.reason] = [until, reason];
+    store.set(ROUTE_PAUSE_KEY, Object.fromEntries(Object.entries(ROUTES).map(([k, v]) => [k, { until: v.pausedUntil, reason: v.reason }])));
+  }
+
+  const routePausedUntil = (route) => Math.max(pausedUntil, ROUTES[route].pausedUntil);
+
+  // Budget d'une route : -> ms à attendre avant sa prochaine lecture (0 : tout de suite). Avec `take`, la place est
+  // réservée, sous un verrou (Web Locks, commun aux onglets du site) pour que deux onglets ne prennent pas la même.
+  async function budgetWait(route, take) {
+    const r = ROUTES[route];
+    const check = async () => {
+      const now = Date.now();
+      const budget = readBudget(await store.get(r.readsKey, []), now, READ_BUDGET, READ_WINDOW_MS);
+      r.reads = budget.stamps.length;
+      if (budget.wait > 0 || !take) return budget.wait;
+      await store.set(r.readsKey, [...budget.stamps, now]);
+      r.reads += 1;
+      return 0;
+    };
+    if (!take) return check();
+    try {
+      return navigator.locks ? await navigator.locks.request(r.lock, check) : await check();
+    } catch (_) {
+      return check(); // verrou indisponible (content script Firefox…) : réservation sans verrou
+    }
+  }
+
+  // Attend que la route puisse lire (pause finie, place dans le budget) sans rien réserver : la carte à lire n'est
+  // choisie qu'ensuite, d'après ce qui est à l'écran à ce moment-là.
+  async function routeReady(route) {
+    const r = ROUTES[route];
     for (;;) {
-      const reserve = async () => {
-        const now = Date.now();
-        const budget = readBudget(await store.get(READS_KEY, []), now, READ_BUDGET, READ_WINDOW_MS);
-        recentReads = budget.stamps.length;
-        if (budget.wait > 0) return budget.wait;
-        await store.set(READS_KEY, [...budget.stamps, now]);
-        recentReads += 1;
-        return 0;
-      };
-      let wait;
-      try {
-        wait = navigator.locks ? await navigator.locks.request("wme-price-reads", reserve) : await reserve();
-      } catch (_) {
-        wait = await reserve(); // verrou indisponible (content script Firefox…) : réservation sans verrou
-      }
-      if (wait === 0) return;
+      const wait = Math.max(routePausedUntil(route) - Date.now(), await budgetWait(route, false));
+      r.waiting = wait > 0;
+      if (!r.waiting) return;
       await sleep(Math.min(wait + 50, 30e3)); // relu au plus toutes les 30 s : un autre onglet a pu libérer de la place
     }
   }
 
-  async function get(path) {
-    await takeReadSlot();
-    const wait = Math.max(pausedUntil, lastRequest + REQUEST_GAP_MS + Math.random() * REQUEST_JITTER_MS) - Date.now();
+  async function get(route, path) {
+    const r = ROUTES[route];
+    for (let wait = await budgetWait(route, true); wait > 0; wait = await budgetWait(route, true)) {
+      await sleep(Math.min(wait + 50, 30e3)); // un autre onglet a pris la dernière place entre-temps
+    }
+    const wait = Math.max(routePausedUntil(route), r.last + REQUEST_GAP_MS + Math.random() * REQUEST_JITTER_MS) - Date.now();
     if (wait > 0) await sleep(wait);
-    lastRequest = Date.now();
+    r.last = Date.now();
     const response = await siteFetch(location.origin + path, { credentials: "include" });
     if (response.ok) return response.json();
     const body = await response.text().catch(() => "");
     const limit = siteLimit(response.status, body);
     if (limit) {
-      // Le site demande d'arrêter : tout le monde attend, et la carte n'est pas un échec (elle sera relue).
+      // Le site demande d'arrêter : on attend, et la carte n'est pas un échec (elle sera relue).
       const retryAfter = Number(response.headers.get("Retry-After")) * 1000;
-      const [ms, reason] = {
-        verification: [LIMIT_PAUSE_MS, "vérification demandée par le site"],
-        automation: [LIMIT_PAUSE_MS, "quota de lectures du site atteint"],
-        rate: [retryAfter > 0 ? retryAfter : RATE_LIMIT_PAUSE_MS, "le site limite les requêtes"],
+      const reason = {
+        verification: "vérification demandée par le site",
+        automation: "quota de lectures du site atteint",
+        rate: "le site limite les requêtes",
       }[limit];
-      pauseAll(ms, reason);
+      if (limit === "automation") pauseRoute(route, LIMIT_PAUSE_MS, reason);
+      else pauseAll(limit === "rate" && retryAfter > 0 ? retryAfter : limit === "rate" ? RATE_LIMIT_PAUSE_MS : LIMIT_PAUSE_MS, reason);
       throw Object.assign(new Error(`${reason} (HTTP ${response.status})`), { rateLimited: true });
     }
     if (response.status === 403 || response.status >= 500) {
@@ -125,29 +161,181 @@
   }
 
   // ------------------------------------------------------------------ cotes
-  const queue = new Set();
+  // File d'attente : id de carte -> { prio, rarity, salesTried }. D'abord « urgent » (paquet ouvert, échange affiché),
+  // puis « page » (les cartes de la page, les plus proches de l'écran d'abord ; une carte qui a quitté la page est
+  // retirée), puis « background » (cartes du récap des paquets, au démarrage).
+  const PRIO = { background: 1, page: 2, urgent: 3 };
+  const queue = new Map();
   const retries = new Map(); // id de carte -> erreurs passagères déjà subies
-  let queueRunning = false;
+  const refused = new Map(); // id -> { until, error } : relecture refusée, l'ancien prix reste affiché jusque-là
+  const workers = { history: false, sales: false };
+  let pageTiles = new Map(); // id de carte -> ses tuiles sur la page (dernier passage de drawBadges)
 
   const fresh = (entry) => entry && Date.now() - entry.at < (entry.failed ? FAILED_TTL_MS : PRICE_TTL_MS);
+  // Un prix de plus de 6 h reste affiché, grisé, jusqu'à 7 jours : le temps d'être relu.
+  const usable = (entry) => Boolean(entry && !entry.failed && entry.q && Date.now() - entry.at < PRICE_KEEP_MS);
 
-  function want(cardId) {
-    if (!fresh(prices[cardId])) {
-      queue.add(cardId);
-      wantShared(cardId);
+  function want(cardId, prio = "page", rarity = "") {
+    if (fresh(prices[cardId])) return;
+    const block = refused.get(cardId);
+    if (block && Date.now() < block.until) return;
+    const cur = queue.get(cardId);
+    queue.set(cardId, {
+      prio: cur && PRIO[cur.prio] > PRIO[prio] ? cur.prio : prio,
+      rarity: rarity || (cur && cur.rarity) || "",
+      salesTried: Boolean(cur && cur.salesTried),
+    });
+    wantShared(cardId);
+    startWorkers();
+  }
+
+  // /sales d'abord ? Oui pour une carte qu'on sait vendue moins de 5 fois en tout, et, sans historique connu, pour une
+  // carte commune (C, PC, R) : elles se vendent peu.
+  function viaSales(id, item) {
+    if (item.salesTried) return false;
+    const n = prices[id] && prices[id].n;
+    if (Number.isFinite(n)) return n < SALES_LIMIT;
+    return rank(item.rarity) >= 0 && rank(item.rarity) <= rank("R");
+  }
+
+  // Distance (px) entre l'écran et la plus proche tuile de la carte : 0 si visible, Infinity si plus sur la page.
+  function screenDistance(id) {
+    let best = Infinity;
+    for (const tile of pageTiles.get(id) || []) {
+      if (!tile.isConnected) continue;
+      const box = tile.getBoundingClientRect();
+      best = Math.min(best, box.bottom < 0 ? -box.bottom : box.top > innerHeight ? box.top - innerHeight : 0);
     }
-    if (!queueRunning) runQueue();
+    return best;
+  }
+
+  // La prochaine carte à lire par cette route. La route des historiques laisse les cartes « /sales d'abord » à
+  // l'autre, sauf si celle-ci est en pause ou attend son budget.
+  function pick(route) {
+    const salesFree = routePausedUntil("sales") <= Date.now() && !ROUTES.sales.waiting;
+    let best = null;
+    let bestScore = -Infinity;
+    for (const [id, item] of queue) {
+      if (fresh(prices[id])) {
+        queue.delete(id);
+        continue;
+      }
+      let distance = 0;
+      if (item.prio === "page") {
+        distance = screenDistance(id);
+        if (distance === Infinity) {
+          queue.delete(id); // la carte a quitté la page : plus la peine de la lire
+          continue;
+        }
+      }
+      const sales = viaSales(id, item);
+      if (route === "sales" ? !sales : sales && salesFree) continue;
+      const score = PRIO[item.prio] * 1e9 - Math.min(distance, 1e8);
+      if (score > bestScore) [best, bestScore] = [id, score];
+    }
+    return best;
+  }
+
+  function startWorkers() {
+    for (const route of Object.keys(ROUTES)) if (!workers[route]) runWorker(route);
+  }
+
+  async function runWorker(route) {
+    workers[route] = true;
+    try {
+      await ready; // les cotes déjà mémorisées d'abord : pas de requête pour une cote encore fraîche
+      for (;;) {
+        await routeReady(route);
+        await sharedIdle(); // une autre lecture l'a peut-être déjà faite (cache partagé)
+        const id = pick(route);
+        if (!id) break;
+        const item = queue.get(id);
+        queue.delete(id);
+        await readCard(route, id, item);
+      }
+    } finally {
+      workers[route] = false;
+      ROUTES[route].waiting = false;
+    }
+  }
+
+  // Une lecture réussie, d'où qu'elle vienne : gardée, et déposée sur le serveur partagé.
+  function remember(id, history, at) {
+    prices[id] = { at, q: quotes(history), n: totalSales(history) };
+    retries.delete(id);
+    refused.delete(id);
+    pushShared(id, history, at);
+  }
+
+  async function readCard(route, id, item) {
+    const card = encodeURIComponent(id);
+    try {
+      if (route === "sales") {
+        const data = await get("sales", `/api/marketplace/cards/${card}/sales`);
+        if (!salesComplete(data)) {
+          // 5 ventes (ou réponse inattendue) : il y en a peut-être d'autres, l'historique complet est nécessaire.
+          queue.set(id, { ...item, salesTried: true });
+          startWorkers();
+          return;
+        }
+        remember(id, historyFromSales(data.recent), Date.now());
+      } else {
+        remember(id, await get("history", `/api/marketplace/cards/${card}/price-history`), Date.now());
+      }
+    } catch (error) {
+      if (error.rateLimited) {
+        queue.set(id, item); // le site demande de ralentir : la carte attend la fin de la pause, ce n'est pas un échec
+        startWorkers();
+        return;
+      }
+      if (route === "sales") {
+        queue.set(id, { ...item, salesTried: true }); // l'historique prend le relais
+        startWorkers();
+        return;
+      }
+      // Erreur passagère (site surchargé, réseau, autre extension qui le sollicite) : on réessaie un peu plus tard.
+      const tries = (retries.get(id) || 0) + 1;
+      if ((error.transient || error instanceof TypeError) && tries < RETRIES) {
+        retries.set(id, tries);
+        if (Date.now() + RETRY_PAUSE_MS > ROUTES.history.pausedUntil) {
+          [ROUTES.history.pausedUntil, ROUTES.history.reason] = [Date.now() + RETRY_PAUSE_MS, "erreur passagère du site"];
+        }
+        queue.set(id, item);
+        return;
+      }
+      retries.delete(id);
+      const message = String(error.message || error);
+      if (usable(prices[id])) refused.set(id, { until: Date.now() + FAILED_TTL_MS, error: message }); // l'ancien reste
+      else prices[id] = { at: Date.now(), q: {}, failed: message };
+    }
+    savePricesSoon();
+    scheduleBadges();
+  }
+
+  // L'onglet « Marché » d'une fiche ouverte par le joueur : le site vient de lire l'historique (src/inject.js le
+  // recopie), on le reprend sans requête.
+  async function fromSite(url, history) {
+    const match = /\/api\/marketplace\/cards\/([^/?#]+)\/price-history/.exec(String(url));
+    if (!match || !history || typeof history.by_rarity !== "object" || !history.by_rarity) return;
+    await ready;
+    const id = decodeURIComponent(match[1]);
+    const mine = prices[id];
+    if (mine && !mine.failed && Date.now() - mine.at < 60e3) return; // notre propre lecture (Firefox la voit passer)
+    remember(id, history, Date.now());
+    queue.delete(id);
+    savePricesSoon();
+    scheduleBadges();
   }
 
   // ------------------------------------------------------------------ prix partagés (server/, src/background.js)
   // Option de la fenêtre, désactivée par défaut. Avant de lire une carte sur le site, on demande au serveur commun si
-  // un participant (une autre extension, un bot) l'a lue depuis moins de 6 h : une requête pour toute la page. Chaque
-  // lecture faite sur le site y est déposée en retour. On n'envoie que l'identifiant de la carte et la réponse
-  // price-history : ni pseudo, ni cookie, ni collection.
+  // un participant (une autre extension, un bot) l'a lue : une requête pour toute la page. Chaque lecture faite sur le
+  // site y est déposée en retour. On n'envoie que l'identifiant de la carte et son historique de prix : ni pseudo, ni
+  // cookie, ni collection.
   let sharedOn = false;
   let sharedSkipUntil = 0;
   const sharedAsked = new Map(); // id -> date de la dernière demande au serveur
-  const sharedWanted = new Set();
+  const sharedWanted = new Map(); // id -> âge maximal demandé (s)
   let sharedTimer = null;
   let sharedBusy = Promise.resolve();
   const sharedOut = [];
@@ -167,29 +355,36 @@
     if (!sharedOn || Date.now() < sharedSkipUntil) return;
     const asked = sharedAsked.get(id);
     if (asked && Date.now() - asked < SHARED_RECHECK_MS) return;
-    sharedWanted.add(id);
+    // Première demande : toute lecture de la semaine (affichée grisée si elle a plus de 6 h). Ensuite, toutes les
+    // 2 min tant que la carte attend : seulement une lecture fraîche, faite entre-temps par un autre participant.
+    sharedWanted.set(id, (asked ? PRICE_TTL_MS : PRICE_KEEP_MS) / 1000);
     sharedTimer ||= setTimeout(askShared, 150); // les cartes d'une page arrivent ensemble : une seule demande
   }
 
   function askShared() {
     clearTimeout(sharedTimer);
     sharedTimer = null;
-    const ids = [...sharedWanted];
-    sharedWanted.clear();
-    if (!ids.length) return;
+    if (!sharedWanted.size) return;
+    const groups = new Map(); // âge maximal -> ids
     const now = Date.now();
-    for (const id of ids) sharedAsked.set(id, now);
+    for (const [id, maxAge] of sharedWanted) {
+      (groups.get(maxAge) || groups.set(maxAge, []).get(maxAge)).push(id);
+      sharedAsked.set(id, now);
+    }
+    sharedWanted.clear();
     sharedBusy = sharedBusy.then(async () => {
       let changed = false;
-      for (let i = 0; i < ids.length; i += 100) {
-        const reply = await shared({ type: "shared-get", ids: ids.slice(i, i + 100), maxAge: PRICE_TTL_MS / 1000 });
-        if (!noteShared(reply)) break;
-        for (const [id, item] of Object.entries(reply.items || {})) {
-          const mine = prices[id];
-          if (mine && !mine.failed && mine.at >= item.read_at) continue; // la nôtre est plus récente
-          prices[id] = { at: item.read_at, q: quotes(item.history), by: item.read_by };
-          sharedStats.served += 1;
-          changed = true;
+      for (const [maxAge, ids] of groups) {
+        for (let i = 0; i < ids.length; i += 100) {
+          const reply = await shared({ type: "shared-get", ids: ids.slice(i, i + 100), maxAge });
+          if (!noteShared(reply)) return;
+          for (const [id, item] of Object.entries(reply.items || {})) {
+            const mine = prices[id];
+            if (mine && !mine.failed && mine.at >= item.read_at) continue; // la nôtre est aussi récente
+            prices[id] = { at: item.read_at, q: quotes(item.history), n: totalSales(item.history), by: item.read_by };
+            sharedStats.served += 1;
+            changed = true;
+          }
         }
       }
       if (changed) {
@@ -228,46 +423,7 @@
     if (on === sharedOn) return;
     sharedOn = on;
     sharedAsked.clear();
-    if (on) for (const id of queue) wantShared(id); // cartes déjà en attente : d'abord le cache
-  }
-
-  async function runQueue() {
-    queueRunning = true;
-    try {
-      await ready; // les cotes déjà mémorisées d'abord : pas de requête pour une cote encore fraîche
-      while (queue.size) {
-        const id = queue.values().next().value;
-        queue.delete(id);
-        await sharedIdle(); // une autre lecture l'a peut-être déjà faite (cache partagé)
-        if (fresh(prices[id])) continue;
-        try {
-          const history = await get(`/api/marketplace/cards/${encodeURIComponent(id)}/price-history`);
-          const at = Date.now();
-          prices[id] = { at, q: quotes(history) };
-          pushShared(id, history, at);
-          retries.delete(id);
-        } catch (error) {
-          if (error.rateLimited) {
-            queue.add(id); // le site demande de ralentir : la carte attend la fin de la pause, ce n'est pas un échec
-            continue;
-          }
-          // Erreur passagère (site surchargé, réseau, autre extension qui le sollicite) : on réessaie un peu plus tard.
-          const tries = (retries.get(id) || 0) + 1;
-          if ((error.transient || error instanceof TypeError) && tries < RETRIES) {
-            retries.set(id, tries);
-            pausedUntil = Math.max(pausedUntil, Date.now() + RETRY_PAUSE_MS);
-            queue.add(id);
-            continue;
-          }
-          retries.delete(id);
-          prices[id] = { at: Date.now(), q: {}, failed: String(error.message || error) };
-        }
-        savePricesSoon();
-        scheduleBadges();
-      }
-    } finally {
-      queueRunning = false;
-    }
+    if (on) for (const id of queue.keys()) wantShared(id); // cartes déjà en attente : d'abord le cache
   }
 
   // Sauvegarde groupée : au plus une écriture par seconde, mais jamais repoussée indéfiniment (une page fermée pendant
@@ -296,6 +452,10 @@
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.source !== "wme-page") return;
+    if (event.data.kind === "price-history") {
+      fromSite(event.data.url, event.data.data);
+      return;
+    }
     note(event.data.data);
     scheduleBadges();
   });
@@ -412,34 +572,40 @@
   const badgeFontPx = (tile) => Math.max(8, Math.min(14, tile.offsetWidth / 15));
 
   function badge(tile, entry) {
-    want(entry.id);
     const { rarity, shiny, el: rarityEl } = tileRarity(tile, entry);
+    want(entry.id, "page", rarity);
     const entryPrices = prices[entry.id];
     let text = "…";
     let tip = "Prix en cours de lecture";
     let state = "wait";
     let value = 0;
-    if (entryPrices && fresh(entryPrices)) {
+    const isFresh = fresh(entryPrices);
+    if (entryPrices && (isFresh || usable(entryPrices))) {
       const q = entryPrices.q[rarity];
+      // Plus de 6 h : affiché grisé, le temps d'être relu (ou après un refus du site, d'être réessayé).
+      const block = refused.get(entry.id);
+      const old = isFresh ? "" : block ? ` Relecture refusée par le site (${block.error}) : nouvel essai bientôt.`
+        : " Relecture en cours.";
       if (entryPrices.failed) {
         [text, tip, state] = ["?", `Prix illisible : ${entryPrices.failed}`, "none"];
       } else if (q && shiny) {
         // Le site ne donne aucun prix propre aux shiny : afficher celui de la carte ordinaire tromperait.
         [text, state] = ["✦ ?", "none"];
         tip = `${entry.title} ${rarity} shiny : le site ne donne pas de prix pour les shiny.\n` +
-          `${rarity} ordinaire : ≈ ${wb(q.avg)} (${q.count} vente(s)).`;
+          `${rarity} ordinaire : ≈ ${wb(q.avg)} (${q.count} vente(s)).${old}`;
       } else if (q) {
-        const age = Math.round((Date.now() - entryPrices.at) / 60e3);
         const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
-        [text, state, value] = [`≈ ${wb(q.avg)}`, "ok", q.avg];
+        [text, state, value] = [`≈ ${wb(q.avg)}`, isFresh ? "ok" : "old", q.avg];
         const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
-        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). Relevé il y a ${age} min${by}.`;
+        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). ` +
+          `Relevé il y a ${ago(Date.now() - entryPrices.at)}${by}.${old}`;
       } else {
         const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
           .map(([r, v]) => `${r} ≈ ${wb(v.avg)}`).join(", ");
         [text, state] = [rarity ? "—" : "?", "none"];
         tip = rarity ? `Aucune vente enregistrée en ${rarity}.` : "Rareté de cette carte non reconnue.";
         if (others) tip += ` Autres raretés : ${others}.`;
+        tip += old;
       }
     }
     let el = tile.querySelector(":scope > .wme-badge");
@@ -465,9 +631,12 @@
   }
 
   // Prix d'un exemplaire pour le bilan d'un échange : null si inconnu (shiny, aucune vente, pas encore lu).
-  function priceOf(item) {
+  // `allowOld` : un prix de plus de 6 h compte aussi (bilan d'un échange affiché, comme les badges grisés). Le récap
+  // des paquets, lui, fige seulement un prix frais.
+  function priceOf(item, allowOld = false) {
     const entry = prices[item.id];
-    const q = entry && fresh(entry) && !entry.failed && entry.q[item.rarity];
+    const ok = entry && !entry.failed && (fresh(entry) || (allowOld && usable(entry)));
+    const q = ok && entry.q[item.rarity];
     return q && !item.shiny ? q.avg : null;
   }
 
@@ -496,7 +665,7 @@
   }
 
   function tradeLine(trade) {
-    const balance = tradeBalance(trade, priceOf);
+    const balance = tradeBalance(trade, (item) => priceOf(item, true));
     const side = (s) => `${s.name} donne ≈ ${wb(s.cards)}` + (s.wb ? ` + ${wb(s.wb)} WB` : "") +
       (s.missing ? ` (${s.missing} carte${s.missing > 1 ? "s" : ""} sans prix)` : "");
     const [a, b] = balance.sides;
@@ -512,7 +681,7 @@
     for (const trade of trades.values()) {
       const block = tradeBlock(trade, tiles);
       if (!block || !block.parentElement) continue;
-      for (const side of trade.sides) for (const item of side.items) want(item.id); // cartes sans tuile comprises
+      for (const side of trade.sides) for (const item of side.items) want(item.id, "urgent", item.rarity); // même sans tuile
       const line = tradeLine(trade);
       shownTrades.push(line.text);
       const selector = `.wme-trade[data-trade="${CSS.escape(trade.id)}"]`;
@@ -546,12 +715,15 @@
     document.documentElement.classList.toggle("wme-hover-only", hoverOnly());
     if (!settings.badges) {
       document.querySelectorAll(OURS).forEach((b) => b.remove());
+      pageTiles = new Map();
       shownTiles = 0;
       shownValue = 0;
       shownTrades = [];
       return;
     }
     const tiles = findTiles();
+    pageTiles = new Map();
+    for (const [tile, entry] of tiles) (pageTiles.get(entry.id) || pageTiles.set(entry.id, []).get(entry.id)).push(tile);
     shownTiles = tiles.length;
     shownValue = tiles.reduce((sum, [tile, entry]) => sum + badge(tile, entry), 0);
     drawTrades(tiles);
@@ -584,7 +756,7 @@
     const cards = cardsIn(event.data.data);
     pullLog = addPull(pullLog, { at: Date.now(), auto, cards }, PULLS_MAX);
     store.set(PULLS_KEY, pullLog);
-    for (const c of cards) if (!c.shiny) want(c.id);
+    for (const c of cards) if (!c.shiny) want(c.id, "urgent", c.rarity);
   });
 
   // Fige les prix connus dans le journal (settlePullPrices, src/lib.js) et l'enregistre s'il a changé.
@@ -610,11 +782,27 @@
     store.set(PULL_BASELINE_KEY, pullBaselineEntry);
   }
 
+  function applyRoutePauses(saved) {
+    for (const [route, pause] of Object.entries(saved || {})) {
+      const r = ROUTES[route];
+      if (r && pause && pause.until > r.pausedUntil) [r.pausedUntil, r.reason] = [pause.until, pause.reason || ""];
+    }
+  }
+
+  // Pauses en cours, pour la fenêtre : [{ reason, until }].
+  function currentPauses() {
+    const now = Date.now();
+    const out = pausedUntil > now ? [{ reason: pauseReason || "le site limite les requêtes", until: pausedUntil }] : [];
+    for (const r of Object.values(ROUTES)) if (r.pausedUntil > now) out.push({ reason: `${r.label} : ${r.reason}`, until: r.pausedUntil });
+    return out;
+  }
+
   // Plusieurs onglets du site ouverts : chacun garde le journal à jour quand un autre l'écrit.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     const pause = changes[PAUSE_KEY] && changes[PAUSE_KEY].newValue;
     if (pause && pause.until > pausedUntil) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
+    if (changes[ROUTE_PAUSE_KEY]) applyRoutePauses(changes[ROUTE_PAUSE_KEY].newValue);
     if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
     if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
     if (changes[SHARED_KEY]) applySharedConfig(changes[SHARED_KEY].newValue);
@@ -645,6 +833,7 @@
       store.set(PULL_BASELINE_KEY, pullBaselineEntry);
     } else if (message.type === "reread") {
       prices = {};
+      refused.clear();
       store.set(PRICES_KEY, prices);
       sharedSkipUntil = Date.now() + SHARED_SKIP_MS;
       drawBadges();
@@ -660,11 +849,10 @@
       tiles: shownTiles,
       value: shownValue,
       known: Object.values(prices).filter((p) => fresh(p) && !p.failed).length,
+      old: Object.values(prices).filter((p) => !fresh(p) && usable(p)).length,
       waiting: queue.size,
-      paused: pausedUntil > Date.now(),
-      pauseReason,
-      pausedUntil,
-      reads: recentReads,
+      pauses: currentPauses(),
+      reads: Object.fromEntries(Object.entries(ROUTES).map(([k, r]) => [k, r.reads])),
       readBudget: READ_BUDGET,
       trades: shownTrades,
       shared: { on: sharedOn, ...sharedStats },
@@ -679,6 +867,7 @@
     applySharedConfig(await store.get(SHARED_KEY, null));
     const pause = await store.get(PAUSE_KEY, null);
     if (pause && pause.until > Date.now()) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
+    applyRoutePauses(await store.get(ROUTE_PAUSE_KEY, null));
     const storedPulls = await store.get(PULLS_KEY, null);
     if (Array.isArray(storedPulls)) {
       // Premier format (essais de la 0.4, packs auto seulement) : converti une fois au format compact.
@@ -702,7 +891,7 @@
     // autres sont redemandés au site.
     settlePulls();
     for (const pack of pullLog.packs) {
-      for (const [id, , shiny, price] of pack.cards) if (!Number.isFinite(price) && !shiny) want(id);
+      for (const [id, rarity, shiny, price] of pack.cards) if (!Number.isFinite(price) && !shiny) want(id, "background", rarity);
     }
   })();
 

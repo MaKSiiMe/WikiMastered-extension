@@ -19,10 +19,39 @@ test("le prix moyen est celui de la dernière semaine avec des ventes, comme sur
   assert.deepEqual(WME.quotes(null), {});
 });
 
-test("semaine en cours : son lundi, en UTC", () => {
+test("semaine en cours : son lundi, à l'heure de Paris comme le site", () => {
   assert.equal(WME.currentWeek(new Date("2026-11-23T10:00:00Z")), "2026-11-23"); // lundi
-  assert.equal(WME.currentWeek(new Date("2026-11-29T23:00:00Z")), "2026-11-23"); // dimanche
-  assert.equal(WME.currentWeek(new Date("2026-11-30T00:30:00Z")), "2026-11-30");
+  assert.equal(WME.currentWeek(new Date("2026-11-29T22:30:00Z")), "2026-11-23"); // dimanche 23 h 30 à Paris
+  assert.equal(WME.currentWeek(new Date("2026-11-29T23:30:00Z")), "2026-11-30"); // déjà lundi à Paris
+  assert.equal(WME.weekStart(new Date("2026-07-05T22:30:00Z")), "2026-07-06"); // heure d'été : lundi 0 h 30
+});
+
+test("les ventes de /sales redonnent l'historique de price-history quand elles sont toutes là", () => {
+  const recent = [
+    { id: "a", final_price: 1000, settled_at: "2026-11-24T10:00:00+00:00", rarity: "R" },
+    { id: "b", final_price: 1201, settled_at: "2026-11-23T08:00:00+00:00", rarity: "R" },
+    { id: "c", final_price: 300, settled_at: "2026-11-15T23:30:00+00:00", rarity: "C" }, // lundi 16 à Paris
+    { id: "d", final_price: 50, settled_at: "x", rarity: "C" }, // date illisible : ignorée
+  ];
+  const history = WME.historyFromSales(recent, Date.parse("2026-11-24T12:00:00Z"));
+  assert.deepEqual(history.by_rarity.R.weekly, [{ start: "2026-11-23", avg: 1101, min: 1000, max: 1201, count: 2 }]);
+  assert.deepEqual(history.by_rarity.C.weekly, [{ start: "2026-11-16", avg: 300, min: 300, max: 300, count: 1 }]);
+  assert.deepEqual(history.by_rarity.R.monthly, [{ start: "2026-11-01", avg: 1101, min: 1000, max: 1201, count: 2 }]);
+  assert.deepEqual(WME.quotes(history), {
+    R: { avg: 1101, count: 2, week: "2026-11-23" },
+    C: { avg: 300, count: 1, week: "2026-11-16" },
+  });
+  assert.equal(WME.totalSales(history), 3);
+  assert.equal(WME.salesComplete({ recent }), true);
+  assert.equal(WME.salesComplete({ recent: [...recent, recent[0]] }), false); // 5 ventes : il y en a peut-être d'autres
+  assert.equal(WME.salesComplete({ recent: [] }), true); // jamais vendue
+  assert.equal(WME.salesComplete(null), false);
+});
+
+test("âge court d'un prix", () => {
+  assert.equal(WME.ago(12 * 60e3), "12 min");
+  assert.equal(WME.ago(5 * 3600e3), "5 h");
+  assert.equal(WME.ago(3 * 86400e3), "3 j");
 });
 
 test("les cartes sont lues dans toutes les réponses du site", () => {
