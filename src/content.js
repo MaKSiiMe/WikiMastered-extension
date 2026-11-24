@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -71,10 +71,11 @@
 
   // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
   // minSales : ventes sur 12 semaines à partir desquelles un prix est fiable (sinon « ≈ »).
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, ownedMarks: true, collectionOrder: "" };
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, ownedMarks: true, collectionOrder: "", deals: true };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
+  const auctions = new Map(); // « carte|rareté » -> enchère du marché la plus proche de sa fin (auctionsIn), pour #16
   const trades = new Map(); // id d'échange -> { id, sides } (src/lib.js, tradesIn)
   let pullLog = WME.emptyPullLog(); // paquets ouverts : { titles, packs } (src/lib.js, addPull)
   let pullBaselineEntry = null; // { at, counts } une fois repris de l'autre extension (ou remis à zéro)
@@ -537,6 +538,11 @@
     }
     note(event.data.data);
     noteOwnership(event.data.url, event.data.data);
+    for (const a of auctionsIn(event.data.data)) {
+      const key = `${a.cardId}|${a.rarity}`;
+      const known = auctions.get(key);
+      if (!known || !(known.endAt > Date.now()) || (a.endAt && a.endAt < known.endAt) || (known.endAt === a.endAt)) auctions.set(key, a);
+    }
     scheduleBadges();
   });
 
@@ -557,6 +563,8 @@
       }, 2000);
     }
   }
+
+  const onMarket = () => /^\/(marketplace|market|marche)(\/|$)/.test(location.pathname);
 
   // Pastille « ✓ » / « Nouvelle » : pas sur sa propre collection ni sur la Collection globale (le site l'y montre
   // déjà), ni sur la page des paquets (toutes les cartes tirées sont à nous).
@@ -683,6 +691,7 @@
     let tip = "Prix en cours de lecture";
     let state = "wait";
     let value = 0;
+    let deal = null;
     const isFresh = fresh(entryPrices);
     if (entryPrices && (isFresh || usable(entryPrices))) {
       const q = entryPrices.q[rarity];
@@ -703,11 +712,18 @@
         // Prix fiable (assez de ventes sur 12 semaines) : le chiffre seul ; sinon « ≈ », à prendre avec prudence.
         const sure = reliable(q, settings.minWeekSales);
         [text, state, value] = [sure ? wb(q.avg) : `≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
+        // Marché : bonne affaire ou surcoté (#16), d'après la mise minimum de l'enchère affichée.
+        const auction = settings.deals && onMarket() ? auctions.get(`${entry.id}|${rarity}`) : null;
+        deal = auction && !shiny ? auctionDeal(auction, q.avg, sure) : null;
         const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
         const sales = sure ? "" : ` Prix incertain : moins de ${settings.minWeekSales} ventes dans la semaine.`;
         const recent = Number.isFinite(q.sales12) ? ` ${q.sales12} vente(s) sur ${RECENT_WEEKS} semaines.` : "";
         tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s).${sales}${recent} ` +
           `Relevé il y a ${ago(Date.now() - entryPrices.at)}${by}.${old}`;
+        if (deal) {
+          tip += deal.kind === "deal" ? `\nBonne affaire : la mise minimum est ${-deal.pct} % sous la cote, et l'enchère finit bientôt.`
+            : `\nSurcoté : la mise minimum dépasse la cote de ${deal.pct} %.`;
+        }
       } else {
         const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
           .map(([r, v]) => `${r} ≈ ${wb(v.avg)}`).join(", ");
@@ -734,6 +750,8 @@
       delete el.dataset.styled;
     }
     if (el.textContent !== text) el.textContent = text;
+    el.dataset.deal = deal ? `${deal.pct > 0 ? "+" : "−"}${Math.abs(deal.pct)} %` : "";
+    el.dataset.dealKind = deal ? deal.kind : "";
     const own = ownMarks() ? owned.get(entry.id) : undefined;
     el.dataset.own = own === true ? "yes" : own === false ? "no" : "";
     if (own !== undefined) tip += own ? "\nTu as déjà cette carte." : "\nTu n'as pas cette carte.";
@@ -1214,6 +1232,10 @@
     } else if (message.type === "autoUnblockMarket") {
       settings.autoUnblockMarket = Boolean(message.on);
       store.set("settings", settings);
+    } else if (message.type === "deals") {
+      settings.deals = Boolean(message.on);
+      store.set("settings", settings);
+      drawBadges();
     } else if (message.type === "ownedMarks") {
       settings.ownedMarks = Boolean(message.on);
       store.set("settings", settings);
@@ -1249,6 +1271,7 @@
       autoUnblockMarket: settings.autoUnblockMarket,
       minSales: settings.minWeekSales,
       ownedMarks: settings.ownedMarks,
+      deals: settings.deals,
       collectionOrder: settings.collectionOrder,
       clickInfo,
       seen: seen.size,

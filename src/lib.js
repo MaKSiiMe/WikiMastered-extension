@@ -625,6 +625,40 @@ const WME = (() => {
     };
   }
 
+  /**
+   * Enchères du marché d'une réponse du site (`auctions[]` : carte, rareté de l'exemplaire, shiny, mise actuelle, mise
+   * de départ, fin). -> [{ cardId, rarity, shiny, current, base, endAt (ms) }]
+   */
+  function auctionsIn(data) {
+    const list = data && Array.isArray(data.auctions) ? data.auctions : [];
+    return list.filter((a) => a && a.card && a.card.id).map((a) => ({
+      cardId: String(a.card.id),
+      rarity: String(a.snapshot_rarity || a.card.rarity || "").toUpperCase(),
+      shiny: Boolean(a.is_shiny),
+      current: Number(a.current_bid) || 0,
+      base: Number(a.base_amount) || 0,
+      endAt: Date.parse(a.end_at) || null,
+    }));
+  }
+
+  /** Mise minimum du site : 10 % au-dessus de la mise actuelle (au moins +1), ou la mise de départ sans enchère. */
+  const minBid = (a) => (a.current > 0 ? Math.max(Math.ceil(1.1 * a.current), a.current + 1) : a.base);
+
+  /**
+   * Bonne affaire ou surcoté (#16), comme Toolbox : « bonne affaire » si l'enchère finit dans moins de 15 min et que la
+   * mise minimum est au moins 25 % sous la cote ; « surcoté » si elle la dépasse d'au moins 50 %. Seulement avec un prix
+   * fiable, et jamais pour un shiny (le site ne donne pas leur prix). -> { kind: "deal" | "high", pct } ou null.
+   */
+  function auctionDeal(a, price, sure, now = Date.now()) {
+    if (!a || a.shiny || !sure || !(price > 0)) return null;
+    const bid = minBid(a);
+    if (!(bid > 0)) return null;
+    const pct = Math.round((bid / price - 1) * 100);
+    if (a.endAt && a.endAt - now <= 15 * 60e3 && a.endAt > now && bid <= 0.75 * price) return { kind: "deal", pct };
+    if (bid >= 1.5 * price) return { kind: "high", pct };
+    return null;
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -640,7 +674,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

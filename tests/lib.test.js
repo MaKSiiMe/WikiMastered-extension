@@ -303,3 +303,15 @@ test("liste de souhaits chiffrée : prix le plus bas connu, coût total", () => 
   assert.equal(s.total, 305);
   assert.deepEqual([s.priced, s.never, s.unknown], [2, 1, 1]);
 });
+
+test("marché : bonne affaire (fin proche, 25 % sous la cote) ou surcoté (50 % au-dessus)", () => {
+  const now = Date.parse("2026-11-24T12:00:00Z");
+  const [a] = WME.auctionsIn({ auctions: [{ card: { id: "x", rarity: "C" }, snapshot_rarity: "sr", is_shiny: false, current_bid: 600,
+    base_amount: 100, end_at: "2026-11-24T12:10:00Z" }] });
+  assert.deepEqual(a, { cardId: "x", rarity: "SR", shiny: false, current: 600, base: 100, endAt: Date.parse("2026-11-24T12:10:00Z") });
+  assert.deepEqual(WME.auctionDeal(a, 1000, true, now), { kind: "deal", pct: -34 }); // mise min 660
+  assert.equal(WME.auctionDeal(a, 1000, false, now), null); // prix incertain
+  assert.equal(WME.auctionDeal({ ...a, endAt: now + 3600e3 }, 1000, true, now), null); // fin trop loin
+  assert.deepEqual(WME.auctionDeal({ ...a, current: 0, base: 300 }, 200, true, now), { kind: "high", pct: 50 });
+  assert.equal(WME.auctionDeal({ ...a, shiny: true }, 1000, true, now), null);
+});

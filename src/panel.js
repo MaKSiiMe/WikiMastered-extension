@@ -356,6 +356,8 @@ async function settingsView() {
     h("label", {}, h("input", { type: "checkbox", checked: state.badges, on: { change: (e) => ask("badges", { on: e.target.checked }) } }), " Badges de prix"),
     h("label", {}, h("input", { type: "checkbox", checked: state.ownedMarks !== false, on: { change: (e) => ask("ownedMarks", { on: e.target.checked }) } }),
       " « ✓ » sur les cartes que j'ai déjà, point bleu sur les autres"),
+    h("label", {}, h("input", { type: "checkbox", checked: state.deals !== false, on: { change: (e) => ask("deals", { on: e.target.checked }) } }),
+      " Marché : « −34 % » bonne affaire (fin dans moins de 15 min, 25 % sous la cote), « +50 % » surcoté"),
     h("label", {}, "Prix fiable à partir de ", minSales, " vente(s) dans la semaine (sinon « ≈ »)"),
     h("h3", {}, "Pages du site"),
     h("label", {}, "Ordre de ma collection : ", order),
