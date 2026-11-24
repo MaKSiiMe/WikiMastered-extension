@@ -58,7 +58,7 @@
 
   // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
   // minSales : ventes sur 12 semaines à partir desquelles un prix est fiable (sinon « ≈ »).
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minSales: MIN_SALES, ownedMarks: true };
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minSales: MIN_SALES, ownedMarks: true, collectionOrder: "" };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
@@ -759,7 +759,54 @@
   // Sur un profil (vitrines), le prix n'apparaît qu'au survol de la carte : une vitrine se regarde.
   const hoverOnly = () => location.pathname.startsWith("/profile");
 
+  // ------------------------------------------------------------------ ordre de la collection (#46)
+  // Le site revient à l'ordre par rareté à chaque visite de /collection. Avec un ordre choisi dans la fenêtre (« Nom »,
+  // « Favoris », « Date d'ajout » : les libellés de son menu), on le sélectionne dans son menu, une fois par visite ;
+  // un ordre choisi ensuite à la main est gardé jusqu'à la visite suivante. Repères relevés dans le code de
+  // LeadOn/Wikimasters-Toolbox (features/site-dom.js) : bouton « Trier la collection », options role="option".
+  const ORDER_BUTTON = 'main button[aria-label="Trier la collection"]';
+  const ORDER_TRIES = 3;
+  let orderVisit = null; // { wanted, tries, done, busy } pour la visite en cours de /collection
+
+  async function ensureCollectionOrder() {
+    if (location.pathname !== "/collection") {
+      orderVisit = null;
+      return;
+    }
+    const wanted = settings.collectionOrder || "";
+    if (!orderVisit || orderVisit.wanted !== wanted) orderVisit = { wanted, tries: 0, done: false, busy: false };
+    const visit = orderVisit;
+    const button = document.querySelector(ORDER_BUTTON);
+    if (visit.done || visit.busy || !button) return;
+    if (!wanted || button.textContent.trim() === wanted) {
+      visit.done = true;
+      return;
+    }
+    const openList = () => button.getAttribute("aria-expanded") === "true"
+      ? document.getElementById(button.getAttribute("aria-controls") || "") : null;
+    let list = openList();
+    if (!list) {
+      if (visit.tries >= ORDER_TRIES) {
+        visit.done = true; // menu qui ne s'ouvre pas : on garde l'ordre du site
+        return;
+      }
+      visit.tries += 1;
+      visit.busy = true;
+      button.click();
+      for (let waited = 0; !list && waited < 1000; waited += 50) {
+        await sleep(50);
+        list = openList();
+      }
+      visit.busy = false;
+      if (!list || visit !== orderVisit) return; // page quittée ou réglage changé pendant l'attente
+    }
+    visit.done = true;
+    const option = [...list.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === wanted);
+    (option || button).click(); // option introuvable (libellé changé par le site) : menu refermé, ordre du site
+  }
+
   function drawBadges() {
+    ensureCollectionOrder();
     readSessionCopies();
     document.documentElement.classList.toggle("wme-hover-only", hoverOnly());
     if (!settings.badges) {
@@ -880,6 +927,11 @@
       settings.ownedMarks = Boolean(message.on);
       store.set("settings", settings);
       drawBadges();
+    } else if (message.type === "collectionOrder") {
+      settings.collectionOrder = ["Nom", "Favoris", "Date d'ajout"].includes(message.value) ? message.value : "";
+      store.set("settings", settings);
+      orderVisit = null; // appliqué tout de suite si la collection est affichée
+      ensureCollectionOrder();
     } else if (message.type === "minSales") {
       settings.minSales = Math.min(50, Math.max(1, Math.round(Number(message.value)) || MIN_SALES));
       store.set("settings", settings);
@@ -905,6 +957,7 @@
       autoUnblockMarket: settings.autoUnblockMarket,
       minSales: settings.minSales,
       ownedMarks: settings.ownedMarks,
+      collectionOrder: settings.collectionOrder,
       clickInfo,
       seen: seen.size,
       tiles: shownTiles,
