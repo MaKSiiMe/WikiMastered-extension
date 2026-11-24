@@ -321,3 +321,23 @@ test("médiane et quartiles des dernières ventes", () => {
   assert.deepEqual(WME.quartiles([10, 20]), { median: 15, q1: 12.5, q3: 17.5, n: 2 });
   assert.equal(WME.quartiles([]), null);
 });
+
+test("filtres : étiquettes (avec, sans, l'une de) et cartes que je n'ai pas", () => {
+  const rows = [["u1", "a", "L", 1, 0, 0, 1], ["u2", "a", "L", 1, 0, 0, 1], ["u3", "b", "R", 1, 0, 0, 1], ["u4", "c", "C", 1, 0, 0, 1]];
+  const tags = { u1: ["t1"], u3: ["t2"] };
+  const info = () => ({ state: "unknown" });
+  const f = (c, mine) => WME.filterCollection(rows, {}, info, { sort: "rarity", ...c }, (u) => tags[u] || [], mine).items.map((i) => i.id);
+  assert.deepEqual(f({ tag: "any" }), ["a", "b"]);
+  assert.deepEqual(f({ tag: "none" }), ["a", "c"]); // a : un exemplaire sans étiquette
+  assert.deepEqual(f({ tag: "t2" }), ["b"]);
+  assert.deepEqual(f({ notMine: true }, (id) => ({ a: true, b: false })[id]), ["b"]); // c : inconnu, écartée
+});
+
+test("collection d'un autre joueur lue dans la réponse de son profil", () => {
+  const r = WME.friendRows({ collection: [
+    { id: "x1", count: 2, is_shiny: false, snapshot_rarity: "ur", owned_by_viewer: false, card: { id: "c1", wikipedia_title: "Lyon", image_url: "a.gif" } },
+    { id: "x2", card: { id: "c2", wikipedia_title: "Paris", rarity: "C" }, owned_by_viewer: true }, { card: null }] });
+  assert.deepEqual(r.rows, [["x1", "c1", "UR", 2, 0, 0, 2], ["x2", "c2", "C", 1, 0, 0, 0]]);
+  assert.deepEqual(r.mine, { c1: false, c2: true });
+  assert.deepEqual(r.titles, { c1: "Lyon", c2: "Paris" });
+});
