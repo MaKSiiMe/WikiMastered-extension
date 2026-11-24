@@ -44,6 +44,7 @@
   const SUPABASE_KEY = "wmSupabase";   // { base, apikey } relevés dans les requêtes du site (src/inject.js)
   const COLLECTION_KEY = "wmCollection"; // { at, rows: [[exemplaire, carte, rareté, nombre, favori, shiny, image]], titles }
   const COLLECTION_TTL_MS = 12 * 3600e3; // collection relue au plus toutes les 12 h, sauf demande
+  const SYNC_KEY = "wmSharedSync";      // { since (heure du serveur), sig } : dernière synchronisation avec le serveur partagé
   const VALUE_KEY = "wmValueHistory";   // valeur de la collection, une mesure par jour (#18)
   const OWNED_KEY = "wmOwned";          // possession des cartes d'après les réponses du site : { id: 1 | 0 }
   const LIMITS_KEY = "wmLimitLog";      // refus du site, avec les lectures qui les ont précédés (addLimitEvent)
@@ -379,6 +380,7 @@
   // site y est déposée en retour. On n'envoie que l'identifiant de la carte et son historique de prix : ni pseudo, ni
   // cookie, ni collection.
   let sharedOn = false;
+  let sharedSig = "";
   let sharedSkipUntil = 0;
   const sharedAsked = new Map(); // id -> date de la dernière demande au serveur
   const sharedWanted = new Map(); // id -> âge maximal demandé (s)
@@ -489,6 +491,9 @@
   window.addEventListener("pagehide", () => { if (sharedOut.length) flushShared(); });
 
   function applySharedConfig(cfg) {
+    // Signature du serveur et du jeton (fin du jeton seulement) : une synchronisation faite avec un autre serveur ou un
+    // autre participant ne vaut pas pour celui-ci.
+    sharedSig = cfg && cfg.url ? `${cfg.url}|${String(cfg.token || "").slice(-6)}` : "";
     const on = Boolean(cfg && cfg.on && cfg.url && cfg.token);
     if (on === sharedOn) return;
     sharedOn = on;
@@ -893,83 +898,56 @@
     return q ? { avg: q.avg, sure: reliable(q, settings.minWeekSales) } : null;
   }
 
-  // Complément par le serveur partagé, au plus une fois par 30 min (et à chaque relecture de la collection), en
-  // arrière-plan : le bilan suivant (le panneau le recalcule toutes les 10 s) en profite.
-  const SHARED_FILL_MS = 30 * 60e3;
+  // Synchronisation avec le serveur partagé, par différence : on demande ce qui a changé depuis la dernière fois
+  // (identifiants et dates, une requête de 5000 au plus), puis seulement les historiques des cartes qui nous intéressent
+  // (collection et souhaits) et que nous n'avons pas, ou plus anciennes. Au plus toutes les 5 min, et à chaque relecture.
+  // Une seule synchronisation pour toutes ces cartes : la date de reprise vaut pour toutes.
+  const SHARED_SYNC_MS = 5 * 60e3;
   let sharedFill = { at: 0, running: false, text: "" };
-  function startSharedFill(collection, force) {
-    if (!sharedOn || sharedFill.running || (!force && Date.now() - sharedFill.at < SHARED_FILL_MS)) return;
-    const ids = [...new Set(collection.rows.filter(([, id, rarity, , , shiny]) => !shiny && !cardPrice(id, rarity)).map((r) => r[1]))];
-    if (!ids.length) return;
-    sharedFill = { at: Date.now(), running: true, text: `Prix partagés : ${ids.length} carte(s) demandée(s) au serveur…` };
-    fillFromShared(ids).then((taken) => {
-      sharedFill = { ...sharedFill, running: false, text: `Prix partagés : ${taken} prix reçu(s) pour ${ids.length} carte(s) sans prix (${time()}).` };
-    }, () => {
-      sharedFill = { ...sharedFill, running: false, text: "Prix partagés : serveur injoignable." };
+
+  async function interestIds() {
+    const ids = new Set();
+    const collection = await store.get(COLLECTION_KEY, null);
+    if (collection) for (const row of collection.rows) if (!row[5]) ids.add(row[1]); // pas les shiny : sans prix propre
+    if (wishCache) for (const w of wishCache.wishes) ids.add(w.id);
+    return ids;
+  }
+
+  async function syncShared() {
+    const interest = await interestIds();
+    const saved = await store.get(SYNC_KEY, null);
+    let since = saved && saved.sig === sharedSig ? Number(saved.since) || 0 : 0;
+    const wanted = new Set();
+    for (let page = 0; page < 50; page++) {
+      const reply = await shared({ type: "shared-changes", since });
+      if (!noteShared(reply)) throw new Error(reply.error);
+      const items = reply.items || [];
+      for (const [id, readAt] of items) {
+        const mine = prices[id];
+        if (interest.has(id) && !(mine && !mine.failed && mine.at >= readAt)) wanted.add(id);
+      }
+      since = reply.more && items.length ? items[items.length - 1][1] - 1 : reply.now;
+      if (!reply.more) break;
+    }
+    const taken = await fillFromShared([...wanted]);
+    await store.set(SYNC_KEY, { since, sig: sharedSig });
+    return taken;
+  }
+
+  function startSharedFill(force) {
+    if (!sharedOn || sharedFill.running || (!force && Date.now() - sharedFill.at < SHARED_SYNC_MS)) return;
+    sharedFill = { ...sharedFill, at: Date.now(), running: true };
+    syncShared().then((taken) => {
+      sharedFill = { ...sharedFill, running: false, text: `Prix partagés : ${taken} prix reçu(s) à la dernière synchronisation (${time()}).` };
+    }, (error) => {
+      sharedFill = { ...sharedFill, running: false, text: `Prix partagés : ${(error && error.message) || "serveur injoignable"}.` };
     });
   }
   const time = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
-  // Liste de souhaits (#21), lue dans la même base : table wishlist_items (ses propres souhaits), gardée 30 min.
-  let wishCache = null;
-  async function readWishlist(force) {
-    if (!force && wishCache && Date.now() - wishCache.at < 30 * 60e3) return wishCache.wishes;
-    const access = await store.get(SUPABASE_KEY, null);
-    if (!access) throw new Error("Accès à la base pas encore repéré : recharge une page du site, puis réessaie.");
-    const { token } = await session(access.base);
-    const wishes = [];
-    const ids = new Set();
-    for (let page = 0; page < 20; page++) {
-      const response = await fetch(`${access.base}wishlist_items?select=card_id,cards(wikipedia_title)&order=card_id.asc&limit=1000&offset=${page * 1000}`, {
-        credentials: "omit", headers: { apikey: access.apikey, authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error(`Lecture de la liste de souhaits refusée (HTTP ${response.status})`);
-      const batch = await response.json();
-      if (!Array.isArray(batch)) throw new Error("Réponse inattendue de la base du site");
-      for (const w of batch) {
-        if (!w || !w.card_id || ids.has(w.card_id)) continue;
-        ids.add(w.card_id);
-        wishes.push({ id: String(w.card_id), title: String((w.cards && w.cards.wikipedia_title) || w.card_id) });
-      }
-      if (batch.length < 1000) break;
-    }
-    wishCache = { at: Date.now(), wishes };
-    return wishes;
-  }
-
-  async function panelWishlist(refresh) {
-    const wishes = await readWishlist(refresh);
-    const unknown = wishes.filter((w) => !usable(prices[w.id])).map((w) => w.id);
-    if (unknown.length && sharedOn && (refresh || !wishCache.filled)) {
-      wishCache.filled = true;
-      fillFromShared(unknown); // en arrière-plan : le prochain affichage en profite
-    }
-    return wishlistSummary(wishes, (id) => (usable(prices[id]) ? prices[id].q : null), (id) => owned.get(id));
-  }
-
-  async function loadWishPrices() {
-    const wishes = await readWishlist(false);
-    let count = 0;
-    for (const w of wishes) if (!usable(prices[w.id])) { want(w.id, "background"); count += 1; }
-    return count;
-  }
-
-  // Prix d'une carte pour les filtres : jamais vendue (relevé récent sans vente dans cette rareté), prix, ou inconnu.
-  function cardPriceInfo(cardId, rarity) {
-    const entry = prices[cardId];
-    if (!usable(entry)) return { state: "unknown" };
-    const q = entry.q[rarity];
-    return q ? { state: "price", avg: q.avg, sure: reliable(q, settings.minWeekSales) } : { state: "never" };
-  }
-
-  async function panelFilter(criteria) {
-    const collection = await readCollection(false);
-    return filterCollection(collection.rows, collection.titles, cardPriceInfo, criteria || {});
-  }
-
   async function panelSummary(refresh) {
     const collection = await readCollection(refresh);
-    startSharedFill(collection, refresh);
+    startSharedFill(refresh);
     const summary = collectionSummary(collection.rows, collection.titles, cardPrice);
     const history = addDailyValue(await store.get(VALUE_KEY, {}), new Date().toISOString().slice(0, 10), summary.value);
     store.set(VALUE_KEY, history);
@@ -1260,6 +1238,7 @@
       refused.clear();
       store.set(PRICES_KEY, prices);
       sharedSkipUntil = Date.now() + SHARED_SKIP_MS;
+      store.set(SYNC_KEY, null); // prix oubliés : la prochaine synchronisation reprend tout
       drawBadges();
     }
     const clickInfo = typeof window.__wmeClickState === "function" ? window.__wmeClickState() : null;

@@ -50,5 +50,14 @@ export function participant(tokens, authorization) {
   return typeof name === "string" && name ? name : null;
 }
 
+export const MAX_CHANGES = 5000; // identifiants par réponse de /v1/changes
+
+/** Date de départ de /v1/changes (ms) : bornée aux 7 derniers jours (rien de plus vieux n'est servi). */
+export function parseSince(raw, now) {
+  const n = Math.floor(Number(raw));
+  const floor = now - MAX_AGE_S * 1000;
+  return Number.isFinite(n) && n > floor ? Math.min(n, now) : floor;
+}
+
 /** Jour UTC « 2026-11-24 », pour les compteurs. */
 export const day = (now) => new Date(now).toISOString().slice(0, 10);

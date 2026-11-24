@@ -2,11 +2,13 @@
 //
 //   GET  /v1/history?ids=a,b,c&max_age=21600  -> { who, items: { "<id>": { read_at, read_by, history } } }
 //   POST /v1/history  { items: [{ id, read_at, history }] }  -> { who, stored }
+//   GET  /v1/changes?since=<ms>  -> { who, now, items: [[card_id, read_at], …], more } : cartes lues depuis `since`
+//        (les plus anciennes d'abord, 5000 au plus ; `more` : il en reste, redemander depuis le dernier read_at)
 //   GET  /v1/stats?days=7  -> { who, cards, days: [{ day, who, asked, served, stored }] }
 //
 // Chaque requête porte « Authorization: Bearer <jeton> » ; les jetons vivent dans le secret TOKENS (JSON
 // { "<jeton>": "<nom>" }), jamais dans le dépôt.
-import { cleanItem, day, KEEP_DAYS, MAX_IDS, parseIds, parseMaxAge, participant } from "./logic.js";
+import { cleanItem, day, KEEP_DAYS, MAX_CHANGES, MAX_IDS, parseIds, parseMaxAge, parseSince, participant } from "./logic.js";
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8" } });
@@ -73,6 +75,18 @@ async function postHistory(env, who, request, now) {
   return json({ who, stored, older: items.length - stored, rejected: raw.length - items.length });
 }
 
+// Ce qui a changé depuis `since` : seulement les identifiants et les dates, le client ne télécharge ensuite que les
+// historiques qui l'intéressent (synchronisation par différence, au lieu de redemander toute sa collection).
+async function getChanges(env, who, url, now) {
+  const since = parseSince(url.searchParams.get("since"), now);
+  const { results } = await env.DB.prepare(
+    "SELECT card_id, read_at FROM history WHERE read_at > ?1 ORDER BY read_at ASC LIMIT ?2",
+  ).bind(since, MAX_CHANGES + 1).all();
+  const more = results.length > MAX_CHANGES;
+  const items = results.slice(0, MAX_CHANGES).map((r) => [r.card_id, r.read_at]);
+  return json({ who, now, items, more });
+}
+
 async function getStats(env, who, url, now) {
   const days = Math.min(90, Math.max(1, Math.floor(Number(url.searchParams.get("days")) || 7)));
   const from = day(now - (days - 1) * 86400e3);
@@ -94,6 +108,7 @@ export default {
       if (url.pathname === "/v1/history" && request.method === "GET") return await getHistory(env, who, url, now);
       if (url.pathname === "/v1/history" && request.method === "POST") return await postHistory(env, who, request, now);
       if (url.pathname === "/v1/stats" && request.method === "GET") return await getStats(env, who, url, now);
+      if (url.pathname === "/v1/changes" && request.method === "GET") return await getChanges(env, who, url, now);
       return json({ error: "route inconnue" }, 404);
     } catch (error) {
       console.error(error);
