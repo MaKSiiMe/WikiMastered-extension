@@ -604,6 +604,27 @@ const WME = (() => {
     return { count: out.length, items: out.slice(0, 300) };
   }
 
+  /**
+   * Liste de souhaits chiffrée (#21). wishes : [{ id, title }] ; quotesOf(id) -> { RARETÉ: { avg, count, … } } ou null
+   * (pas encore lu) ; owned(id) -> true | false | undefined. Le coût d'une carte est son prix le plus bas connu, toutes
+   * raretés (on la veut, pas une rareté précise). -> { items: [{ id, title, cheapest: { rarity, avg } | null, state,
+   * prices: [[rareté, avg]], owned }], total, priced, unknown, never }
+   */
+  function wishlistSummary(wishes, quotesOf, owned = () => undefined) {
+    const items = wishes.map(({ id, title }) => {
+      const q = quotesOf(id);
+      const list = q ? Object.entries(q).sort(([a], [b]) => rank(a) - rank(b)).map(([r, v]) => [r, v.avg]) : [];
+      const cheapest = list.length ? list.reduce((best, [r, avg]) => (!best || avg < best.avg ? { rarity: r, avg } : best), null) : null;
+      return { id, title, cheapest, prices: list, state: !q ? "unknown" : cheapest ? "price" : "never", owned: owned(id) };
+    });
+    items.sort((a, b) => (a.cheapest === null) - (b.cheapest === null) || (b.cheapest ? b.cheapest.avg : 0) - (a.cheapest ? a.cheapest.avg : 0));
+    const priced = items.filter((i) => i.cheapest);
+    return {
+      items, total: priced.reduce((sum, i) => sum + i.cheapest.avg, 0), priced: priced.length,
+      unknown: items.filter((i) => i.state === "unknown").length, never: items.filter((i) => i.state === "never").length,
+    };
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -619,7 +640,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;
