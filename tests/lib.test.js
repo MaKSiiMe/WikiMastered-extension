@@ -78,3 +78,44 @@ test("un échange : les cartes de chaque côté et son bilan", () => {
   assert.deepEqual(balance.sides.map((s) => [s.total, s.missing]), [[2300, 0], [5000, 1]]);
   assert.equal(balance.gain, 2700); // Alice reçoit 5 000 (sans le shiny) et donne 2 300
 });
+
+test("journal des paquets : compact, prix figés, récap de C à L, à la main et en auto", () => {
+  const prices = { a: 100, b: 2500, c: 40 };
+  const priceOf = (c) => (c.shiny ? null : prices[c.id] ?? null);
+  let log = WME.emptyPullLog();
+  log = WME.addPull(log, { at: 1, auto: true, cards: [
+    { id: "a", title: "Lyon", rarity: "R", shiny: false }, { id: "b", title: "Rome", rarity: "L", shiny: false }] }, 10);
+  log = WME.addPull(log, { at: 2, auto: false, cards: [
+    { id: "c", title: "Paris", rarity: "C", shiny: false }, { id: "b", title: "Rome", rarity: "L", shiny: true }] }, 10);
+  log = WME.addPull(log, { at: 3, auto: true, cards: [] }, 10); // réponse sans carte lisible : le paquet compte
+  assert.deepEqual(log.packs[0].cards, [["a", "R", 0, null], ["b", "L", 0, null]]);
+
+  assert.equal(WME.settlePullPrices(log, priceOf), true);
+  assert.equal(WME.settlePullPrices(log, priceOf), false); // déjà figés (le shiny reste sans prix)
+  prices.b = 9999; // la cote bouge après l'ouverture : le récap garde le prix figé
+  const recap = WME.pullRecap(log, priceOf);
+  assert.deepEqual([recap.packs, recap.auto, recap.manual, recap.cards, recap.since], [3, 2, 1, 4, 1]);
+  assert.deepEqual(Object.entries(recap.byRarity), [["C", 1], ["R", 1], ["L", 2]]);
+  assert.deepEqual([recap.shiny, recap.value, recap.missing], [1, 2640, 1]);
+  assert.deepEqual(recap.best.map((c) => [c.title, c.price]), [["Rome", 2500], ["Lyon", 100], ["Paris", 40]]);
+
+  const trimmed = WME.addPull(log, { at: 4, auto: true, cards: [] }, 2); // max 2 : les deux plus anciens partent
+  assert.deepEqual(trimmed.packs.map((p) => p.at), [3, 4]);
+  assert.deepEqual(trimmed.titles, {});
+  assert.equal(WME.pullRecap(WME.emptyPullLog(), priceOf).since, null);
+});
+
+test("point de départ repris de l'autre extension : sans double compte, les L+ comptés en L", () => {
+  let log = WME.emptyPullLog();
+  log = WME.addPull(log, { at: 1, auto: false, cards: [
+    { id: "a", title: "Lyon", rarity: "C", shiny: false }, { id: "b", title: "Rome", rarity: "L+", shiny: false }] }, 10);
+  // L'autre extension a vu le même paquet : ses compteurs l'incluent déjà.
+  const earlier = WME.pullBaseline({ counts: { L: 6, UR: 55, SR: 0, C: 8951, "L+": 1 }, updatedAt: 0 }, log);
+  assert.deepEqual(earlier, { L: 6, UR: 55, C: 8950 });
+  const recap = WME.pullRecap(log, () => null, earlier);
+  assert.equal(recap.earlier, 9011);
+  assert.equal(recap.cards, 2);
+  assert.deepEqual(Object.entries(recap.byRarity), [["C", 8951], ["UR", 55], ["L", 7]]);
+  assert.equal(WME.pullBaseline(null, log), null);
+  assert.equal(WME.pullBaseline({ counts: "?" }, log), null);
+});
