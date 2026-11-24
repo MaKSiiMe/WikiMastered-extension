@@ -7,8 +7,8 @@
 //    (server/, via src/background.js) les lectures des autres participants, et y dépose les siennes.
 // 3. Il pose un badge « ≈ 1 250 » sur chaque carte de la page, retrouvée par son titre, et le bilan d'un échange
 //    affiché (ce que chaque côté donne).
-// 4. Il coordonne les réglages d'automatisation par clic (src/click.js, dans le même monde isolé) et répond à la
-//    fenêtre de l'extension (src/popup.js, clic sur l'icône ou Alt+Maj+W) : compteurs, statut clic et réglages.
+// 4. Il coordonne les réglages d'automatisation par clic (src/click.js, dans le même monde isolé) et répond au
+//    panneau de l'extension (src/panel.js, clic sur l'icône ou Alt+Maj+W) : compteurs, collection, réglages.
 (() => {
   if (window.__wmeContent) return;
   window.__wmeContent = true;
@@ -424,13 +424,7 @@
         for (let i = 0; i < ids.length; i += 100) {
           const reply = await shared({ type: "shared-get", ids: ids.slice(i, i + 100), maxAge });
           if (!noteShared(reply)) return;
-          for (const [id, item] of Object.entries(reply.items || {})) {
-            const mine = prices[id];
-            if (mine && !mine.failed && mine.at >= item.read_at) continue; // la nôtre est aussi récente
-            prices[id] = { at: item.read_at, q: quotes(item.history), n: totalSales(item.history), by: item.read_by };
-            sharedStats.served += 1;
-            changed = true;
-          }
+          if (applySharedItems(reply.items)) changed = true;
         }
       }
       if (changed) {
@@ -438,6 +432,36 @@
         scheduleBadges();
       }
     });
+  }
+
+  // Lectures reçues du serveur : gardées si elles sont plus récentes que les nôtres. -> nombre de prix pris.
+  function applySharedItems(items) {
+    let taken = 0;
+    for (const [id, item] of Object.entries(items || {})) {
+      const mine = prices[id];
+      if (mine && !mine.failed && mine.at >= item.read_at) continue; // la nôtre est aussi récente
+      prices[id] = { at: item.read_at, q: quotes(item.history), n: totalSales(item.history), by: item.read_by };
+      sharedStats.served += 1;
+      taken += 1;
+    }
+    return taken;
+  }
+
+  // Toute une liste de cartes demandée au serveur partagé (bilan de la collection) : 100 par requête, à la suite,
+  // lectures de la semaine. Le bot y dépose ses lectures de la collection : c'est là que sont la plupart des prix.
+  async function fillFromShared(ids) {
+    if (!sharedOn) return 0;
+    let taken = 0;
+    for (let i = 0; i < ids.length; i += 100) {
+      const reply = await shared({ type: "shared-get", ids: ids.slice(i, i + 100), maxAge: PRICE_KEEP_MS / 1000 });
+      if (!noteShared(reply)) break;
+      taken += applySharedItems(reply.items);
+    }
+    if (taken) {
+      savePricesSoon();
+      scheduleBadges();
+    }
+    return taken;
   }
 
   // La file attend la réponse du cache partagé avant de lire une carte sur le site.
@@ -866,8 +890,26 @@
     return q ? { avg: q.avg, sure: reliable(q, settings.minWeekSales) } : null;
   }
 
+  // Complément par le serveur partagé, au plus une fois par 30 min (et à chaque relecture de la collection), en
+  // arrière-plan : le bilan suivant (le panneau le recalcule toutes les 10 s) en profite.
+  const SHARED_FILL_MS = 30 * 60e3;
+  let sharedFill = { at: 0, running: false, text: "" };
+  function startSharedFill(collection, force) {
+    if (!sharedOn || sharedFill.running || (!force && Date.now() - sharedFill.at < SHARED_FILL_MS)) return;
+    const ids = [...new Set(collection.rows.filter(([, id, rarity, , , shiny]) => !shiny && !cardPrice(id, rarity)).map((r) => r[1]))];
+    if (!ids.length) return;
+    sharedFill = { at: Date.now(), running: true, text: `Prix partagés : ${ids.length} carte(s) demandée(s) au serveur…` };
+    fillFromShared(ids).then((taken) => {
+      sharedFill = { ...sharedFill, running: false, text: `Prix partagés : ${taken} prix reçu(s) pour ${ids.length} carte(s) sans prix (${time()}).` };
+    }, () => {
+      sharedFill = { ...sharedFill, running: false, text: "Prix partagés : serveur injoignable." };
+    });
+  }
+  const time = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
   async function panelSummary(refresh) {
     const collection = await readCollection(refresh);
+    startSharedFill(collection, refresh);
     const summary = collectionSummary(collection.rows, collection.titles, cardPrice);
     const history = addDailyValue(await store.get(VALUE_KEY, {}), new Date().toISOString().slice(0, 10), summary.value);
     store.set(VALUE_KEY, history);
@@ -879,6 +921,7 @@
       at: collection.at, summary: { ...summary, duplicates: summary.duplicates.slice(0, 300) }, history,
       missing: Object.fromEntries(Object.entries(missing).map(([r, set]) => [r, set.size])),
       waiting: queue.size,
+      sharedFill: sharedFill.text,
     };
   }
 
@@ -1104,9 +1147,9 @@
     if (changes[SHARED_KEY]) applySharedConfig(changes[SHARED_KEY].newValue);
   });
 
-  // ------------------------------------------------------------------ fenêtre de l'extension (src/popup.js)
-  // La fenêtre ouverte par l'icône vit dans le monde de l'extension : elle ne voit pas la page. Elle demande donc
-  // l'état à ce script par chrome.runtime, et lui transmet les réglages (badges et automatisations par clic).
+  // ------------------------------------------------------------------ panneau de l'extension (src/panel.js)
+  // Le panneau ouvert par l'icône vit dans le monde de l'extension : il ne voit pas la page. Il demande donc l'état à
+  // ce script par chrome.tabs.sendMessage, et lui transmet les réglages (badges, seuil, ordre, automatisation).
   // clickInfo est lu depuis src/click.js via window.__wmeClickState(), car les deux scripts partagent le même
   // monde isolé (« document_idle »).
   chrome.runtime.onMessage.addListener((message, _sender, reply) => {

@@ -362,7 +362,7 @@
     } catch (_) {}
   }
 
-  // Expose l'état synthétique de src/click.js à src/content.js (même monde isolé) pour affichage dans la popup.
+  // Expose l'état synthétique de src/click.js à src/content.js (même monde isolé) pour affichage dans le panneau.
   window.__wmeClickState = () => ({
     status: statusMessage,
     onPulls: onPulls(),

@@ -1,7 +1,7 @@
 // Script d'arrière-plan : le seul à parler au serveur de prix partagés (server/, un Cloudflare Worker).
 //
 // Pourquoi ici ? Le content script (src/content.js) n'a pas le droit d'appeler un autre site que wiki-masters.com ;
-// l'arrière-plan, si, une fois l'adresse du serveur autorisée depuis la fenêtre de l'extension (src/popup.js). Le
+// l'arrière-plan, si, une fois l'adresse du serveur autorisée depuis le panneau de l'extension (src/panel.js). Le
 // jeton reste dans chrome.storage.local, propre à l'extension : le site ne le voit jamais.
 //
 // Messages reçus (chrome.runtime.sendMessage) :
@@ -9,7 +9,7 @@
 //   { type: "shared-put", items }            -> { who, stored, older, rejected }
 //   { type: "shared-stats" }                 -> { who, fresh_cards, days }
 // En cas d'échec : { error }.
-const SHARED_KEY = "shared"; // { on, url, token }, écrit par la fenêtre
+const SHARED_KEY = "shared"; // { on, url, token }, écrit par le panneau
 const TIMEOUT_MS = 8000;
 
 async function config() {
@@ -50,3 +50,11 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
   pending.then(reply);
   return true; // réponse asynchrone
 });
+
+// Clic sur l'icône (ou Alt+Maj+W) : ouvre le panneau latéral. Chrome le fait seul une fois réglé ; Firefox, par
+// sidebarAction, pendant le clic.
+if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+} else if (typeof browser !== "undefined" && browser.sidebarAction && browser.action) {
+  browser.action.onClicked.addListener(() => browser.sidebarAction.toggle());
+}
