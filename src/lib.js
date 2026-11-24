@@ -162,6 +162,38 @@ const WME = (() => {
   }
 
   /**
+   * Ce que le site dit de la possession des cartes d'une réponse : [[id, true|false], …], sans aucune requête.
+   *  - /api/my-collection : toutes ses cartes sont à nous ;
+   *  - catalogue (/api/cards) : `cards` et `ownedCardIds` ;
+   *  - marché : `owned` à côté de la carte d'une enchère ; collection d'un autre joueur : `owned_by_viewer`.
+   * (relevé dans LeadOn/Wikimasters-Toolbox, lib/registry.js)
+   */
+  function ownershipIn(data, url = "") {
+    const out = [];
+    if (/\/api\/my-collection(?:[/?#]|$)/i.test(String(url))) {
+      for (const c of cardsIn(data)) out.push([c.id, true]);
+      return out;
+    }
+    const visit = (node, depth) => {
+      if (!node || typeof node !== "object" || depth > 8) return;
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, depth + 1);
+        return;
+      }
+      if (Array.isArray(node.ownedCardIds) && Array.isArray(node.cards)) {
+        const mine = new Set(node.ownedCardIds.map(String));
+        for (const c of node.cards) if (c && c.id) out.push([String(c.id), mine.has(String(c.id))]);
+      }
+      const flag = typeof node.owned_by_viewer === "boolean" ? node.owned_by_viewer
+        : typeof node.owned === "boolean" ? node.owned : null;
+      if (flag !== null && node.card && node.card.id) out.push([String(node.card.id), flag]);
+      for (const value of Object.values(node)) if (value && typeof value === "object") visit(value, depth + 1);
+    };
+    visit(data, 0);
+    return out;
+  }
+
+  /**
    * Les échanges d'une réponse du site (/api/trades, relevé du bot le 22/11) : chaque échange a un `initiator` qui
    * propose à un `recipient`, des WB de chaque côté et des `items` (un exemplaire, `offered_by` = qui le donne).
    * -> [{ id, sides: [{ name, wb, items: [{ id, title, rarity, shiny }] }, { … }] }] ; côté 0 = l'initiateur.
@@ -384,7 +416,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

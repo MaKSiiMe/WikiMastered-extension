@@ -195,3 +195,15 @@ test("relevé des refus du site : lectures d'avant, les plus récents d'abord, 5
   assert.equal(log.length, 50);
   assert.equal(log[0].at, 54);
 });
+
+test("possession des cartes lue dans les réponses du site, sans requête", () => {
+  const c = (id) => ({ id, wikipedia_title: `Carte ${id}`, rarity: "R" });
+  assert.deepEqual(WME.ownershipIn({ collection: [{ card: c("1") }] }, "/api/my-collection?page=1"), [["1", true]]);
+  assert.deepEqual(WME.ownershipIn({ cards: [c("2"), c("3")], ownedCardIds: ["3"] }, "/api/cards?page=1"),
+    [["2", false], ["3", true]]);
+  assert.deepEqual(WME.ownershipIn({ auctions: [{ card: c("4"), owned: true }, { card: c("5"), owned: false }, { card: c("6") }] },
+    "/api/marketplace"), [["4", true], ["5", false]]);
+  assert.deepEqual(WME.ownershipIn({ collection: [{ card: c("7"), owned_by_viewer: false }] }, "/api/profile/x/collection"),
+    [["7", false]]);
+  assert.deepEqual(WME.ownershipIn(null), []);
+});

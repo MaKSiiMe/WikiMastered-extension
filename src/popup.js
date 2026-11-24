@@ -45,6 +45,9 @@ function render(state) {
       h("input", { type: "checkbox", checked: state.badges, on: { change: async (e) => render(await ask("badges", { on: e.target.checked })) } }),
       " Badges de prix sur les cartes"),
     h("label", {},
+      h("input", { type: "checkbox", checked: state.ownedMarks !== false, on: { change: async (e) => render(await ask("ownedMarks", { on: e.target.checked })) } }),
+      " « ✓ » / « Nouvelle » : cartes que j'ai déjà ou pas"),
+    h("label", {},
       h("input", {
         type: "checkbox",
         checked: Boolean(state.autoClickPack),
