@@ -2,7 +2,8 @@
 //
 // 1. Il reçoit de src/inject.js les réponses de l'API du site, et note les cartes affichées.
 // 2. Il demande le prix moyen de chacune (historique des prix, une requête par carte : le site n'en a pas d'autre),
-//    une requête à la fois, et le garde 6 h.
+//    une requête à la fois, et le garde 6 h. Avec les prix partagés (option), il demande d'abord au serveur commun
+//    (server/, via src/background.js) les lectures des autres participants, et y dépose les siennes.
 // 3. Il pose un badge « ≈ 1 250 » sur chaque carte de la page, retrouvée par son titre, et le bilan d'un échange
 //    affiché (ce que chaque côté donne).
 // 4. Il coordonne les réglages d'automatisation par clic (src/click.js, dans le même monde isolé) et répond à la
@@ -33,6 +34,10 @@
   const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
   const OTHER_PULL_STATS_KEY = "wm_pull_stats_v1"; // compteurs de « WikiMasters - Prix moyen collection » (localStorage)
   const AUTO_PULL_WINDOW_MS = 15e3;     // un paquet ouvert moins de 15 s après un clic de src/click.js est « auto »
+  const SHARED_KEY = "shared";          // serveur de prix partagés : { on, url, token } (fenêtre, src/background.js)
+  const SHARED_RECHECK_MS = 2 * 60e3;   // une carte absente du cache partagé y est redemandée après 2 min
+  const SHARED_PUSH_MS = 3e3;           // lectures déposées par lots, au plus toutes les 3 s
+  const SHARED_SKIP_MS = 10 * 60e3;     // « Relire tous les prix » : le site d'abord, pas le cache, pendant 10 min
 
   // Firefox : `content.fetch` envoie la requête comme la page elle-même (cookies de session compris). Chrome n'a pas
   // `content` : le fetch du content script part déjà depuis la page.
@@ -127,8 +132,103 @@
   const fresh = (entry) => entry && Date.now() - entry.at < (entry.failed ? FAILED_TTL_MS : PRICE_TTL_MS);
 
   function want(cardId) {
-    if (!fresh(prices[cardId])) queue.add(cardId);
+    if (!fresh(prices[cardId])) {
+      queue.add(cardId);
+      wantShared(cardId);
+    }
     if (!queueRunning) runQueue();
+  }
+
+  // ------------------------------------------------------------------ prix partagés (server/, src/background.js)
+  // Option de la fenêtre, désactivée par défaut. Avant de lire une carte sur le site, on demande au serveur commun si
+  // un participant (une autre extension, un bot) l'a lue depuis moins de 6 h : une requête pour toute la page. Chaque
+  // lecture faite sur le site y est déposée en retour. On n'envoie que l'identifiant de la carte et la réponse
+  // price-history : ni pseudo, ni cookie, ni collection.
+  let sharedOn = false;
+  let sharedSkipUntil = 0;
+  const sharedAsked = new Map(); // id -> date de la dernière demande au serveur
+  const sharedWanted = new Set();
+  let sharedTimer = null;
+  let sharedBusy = Promise.resolve();
+  const sharedOut = [];
+  let sharedPushTimer = null;
+  const sharedStats = { who: "", served: 0, pushed: 0, error: "" };
+
+  const shared = (message) => chrome.runtime.sendMessage(message)
+    .then((reply) => reply || { error: "pas de réponse" })
+    .catch((error) => ({ error: String((error && error.message) || error) }));
+  const noteShared = (reply) => {
+    sharedStats.error = reply.error || "";
+    if (reply.who) sharedStats.who = reply.who;
+    return !reply.error;
+  };
+
+  function wantShared(id) {
+    if (!sharedOn || Date.now() < sharedSkipUntil) return;
+    const asked = sharedAsked.get(id);
+    if (asked && Date.now() - asked < SHARED_RECHECK_MS) return;
+    sharedWanted.add(id);
+    sharedTimer ||= setTimeout(askShared, 150); // les cartes d'une page arrivent ensemble : une seule demande
+  }
+
+  function askShared() {
+    clearTimeout(sharedTimer);
+    sharedTimer = null;
+    const ids = [...sharedWanted];
+    sharedWanted.clear();
+    if (!ids.length) return;
+    const now = Date.now();
+    for (const id of ids) sharedAsked.set(id, now);
+    sharedBusy = sharedBusy.then(async () => {
+      let changed = false;
+      for (let i = 0; i < ids.length; i += 100) {
+        const reply = await shared({ type: "shared-get", ids: ids.slice(i, i + 100), maxAge: PRICE_TTL_MS / 1000 });
+        if (!noteShared(reply)) break;
+        for (const [id, item] of Object.entries(reply.items || {})) {
+          const mine = prices[id];
+          if (mine && !mine.failed && mine.at >= item.read_at) continue; // la nôtre est plus récente
+          prices[id] = { at: item.read_at, q: quotes(item.history), by: item.read_by };
+          sharedStats.served += 1;
+          changed = true;
+        }
+      }
+      if (changed) {
+        savePricesSoon();
+        scheduleBadges();
+      }
+    });
+  }
+
+  // La file attend la réponse du cache partagé avant de lire une carte sur le site.
+  async function sharedIdle() {
+    if (sharedTimer) askShared();
+    await sharedBusy;
+  }
+
+  function pushShared(id, history, at) {
+    if (!sharedOn || !history || typeof history.by_rarity !== "object" || !history.by_rarity) return;
+    sharedOut.push({ id, read_at: at, history: { computed_at: history.computed_at ?? null, by_rarity: history.by_rarity } });
+    if (sharedOut.length >= 50) flushShared();
+    else sharedPushTimer ||= setTimeout(flushShared, SHARED_PUSH_MS);
+  }
+
+  async function flushShared() {
+    clearTimeout(sharedPushTimer);
+    sharedPushTimer = null;
+    while (sharedOut.length) {
+      const reply = await shared({ type: "shared-put", items: sharedOut.splice(0, 100) });
+      if (!noteShared(reply)) return; // serveur injoignable : ces lectures restent seulement chez nous
+      sharedStats.pushed += reply.stored || 0;
+    }
+  }
+  window.addEventListener("pagehide", () => { if (sharedOut.length) flushShared(); });
+
+  function applySharedConfig(cfg) {
+    const on = Boolean(cfg && cfg.on && cfg.url && cfg.token);
+    if (on === sharedOn) return;
+    sharedOn = on;
+    sharedAsked.clear();
+    if (on) for (const id of queue) wantShared(id); // cartes déjà en attente : d'abord le cache
   }
 
   async function runQueue() {
@@ -138,10 +238,13 @@
       while (queue.size) {
         const id = queue.values().next().value;
         queue.delete(id);
+        await sharedIdle(); // une autre lecture l'a peut-être déjà faite (cache partagé)
         if (fresh(prices[id])) continue;
         try {
           const history = await get(`/api/marketplace/cards/${encodeURIComponent(id)}/price-history`);
-          prices[id] = { at: Date.now(), q: quotes(history) };
+          const at = Date.now();
+          prices[id] = { at, q: quotes(history) };
+          pushShared(id, history, at);
           retries.delete(id);
         } catch (error) {
           if (error.rateLimited) {
@@ -329,7 +432,8 @@
         const age = Math.round((Date.now() - entryPrices.at) / 60e3);
         const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
         [text, state, value] = [`≈ ${wb(q.avg)}`, "ok", q.avg];
-        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). Relevé il y a ${age} min.`;
+        const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
+        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). Relevé il y a ${age} min${by}.`;
       } else {
         const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
           .map(([r, v]) => `${r} ≈ ${wb(v.avg)}`).join(", ");
@@ -513,6 +617,7 @@
     if (pause && pause.until > pausedUntil) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
     if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
+    if (changes[SHARED_KEY]) applySharedConfig(changes[SHARED_KEY].newValue);
   });
 
   // ------------------------------------------------------------------ fenêtre de l'extension (src/popup.js)
@@ -541,6 +646,7 @@
     } else if (message.type === "reread") {
       prices = {};
       store.set(PRICES_KEY, prices);
+      sharedSkipUntil = Date.now() + SHARED_SKIP_MS;
       drawBadges();
     }
     const clickInfo = typeof window.__wmeClickState === "function" ? window.__wmeClickState() : null;
@@ -561,6 +667,7 @@
       reads: recentReads,
       readBudget: READ_BUDGET,
       trades: shownTrades,
+      shared: { on: sharedOn, ...sharedStats },
       pulls: pullRecap(pullLog, priceOf, (pullBaselineEntry && pullBaselineEntry.counts) || {}),
     });
   });
@@ -569,6 +676,7 @@
   const ready = (async () => {
     settings = { ...settings, ...(await store.get("settings", {})) };
     prices = await store.get(PRICES_KEY, {});
+    applySharedConfig(await store.get(SHARED_KEY, null));
     const pause = await store.get(PAUSE_KEY, null);
     if (pause && pause.until > Date.now()) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     const storedPulls = await store.get(PULLS_KEY, null);

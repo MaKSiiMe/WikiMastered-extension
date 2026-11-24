@@ -17,6 +17,7 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 ## v1 : le collectionneur
 
 ### Prix
+- [ ] Prix partagés entre joueurs et bots (serveur commun, `server/`) : essai à quatre en 0.5, puis ouverture plus large avec contrôle des cotes déposées (concordance, vérification par le bot).
 - [ ] Prix des shiny à partir des ventes réelles (`/api/marketplace/cards/{id}/sales`), séparés des cartes ordinaires : fin de la limite « ✦ ? ». (Toolbox) [#12](https://github.com/MaKSiiMe/WikiMastered-extension/issues/12)
 - [ ] Nombre de ventes derrière chaque prix ; « ≈ » quand il y en a peu, seuil réglable. (Toolbox, henchoznoe) [#13](https://github.com/MaKSiiMe/WikiMastered-extension/issues/13)
 - [ ] Courbe de prix au survol d'un badge : un relevé local par rareté et par jour, gardé 90 jours, trous affichés. (henchoznoe) [#14](https://github.com/MaKSiiMe/WikiMastered-extension/issues/14)

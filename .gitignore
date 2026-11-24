@@ -1,2 +1,5 @@
 dist/
 node_modules/
+server/wrangler.toml
+server/.dev.vars
+server/.wrangler/
