@@ -22,6 +22,7 @@
   const RETRIES = 3;                    // erreur passagère du site (autre 403, 5xx, réseau) : 3 essais avant « ? »
   const RETRY_PAUSE_MS = 15e3;          // … espacés de 15 s
   const PRICE_KEEP_MS = 7 * 24 * 3600e3; // cotes de plus de 7 jours oubliées
+  const GREY_AFTER_MS = 24 * 3600e3;    // relu après 6 h, mais grisé seulement après 24 h (le prix bouge peu en un jour)
   const REQUEST_GAP_MS = 500;           // au moins 0,5 s entre deux requêtes de l'extension (~30 s pour 50 cartes)…
   const REQUEST_JITTER_MS = 300;        // … plus un délai au hasard, pour ne pas taper en rythme régulier
   const RATE_LIMIT_PAUSE_MS = 60e3;     // le site répond 429 (trop de requêtes) sans Retry-After : pause d'une minute
@@ -582,7 +583,7 @@
     const isFresh = fresh(entryPrices);
     if (entryPrices && (isFresh || usable(entryPrices))) {
       const q = entryPrices.q[rarity];
-      // Plus de 6 h : affiché grisé, le temps d'être relu (ou après un refus du site, d'être réessayé).
+      // Plus de 6 h : relu en arrière-plan ; affiché grisé seulement après 24 h.
       const block = refused.get(entry.id);
       const old = isFresh ? "" : block ? ` Relecture refusée par le site (${block.error}) : nouvel essai bientôt.`
         : " Relecture en cours.";
@@ -595,7 +596,8 @@
           `${rarity} ordinaire : ≈ ${wb(q.avg)} (${q.count} vente(s)).${old}`;
       } else if (q) {
         const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
-        [text, state, value] = [`≈ ${wb(q.avg)}`, isFresh ? "ok" : "old", q.avg];
+        const grey = Date.now() - entryPrices.at >= GREY_AFTER_MS;
+        [text, state, value] = [`≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
         const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
         tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s). ` +
           `Relevé il y a ${ago(Date.now() - entryPrices.at)}${by}.${old}`;
@@ -849,7 +851,7 @@
       tiles: shownTiles,
       value: shownValue,
       known: Object.values(prices).filter((p) => fresh(p) && !p.failed).length,
-      old: Object.values(prices).filter((p) => !fresh(p) && usable(p)).length,
+      old: Object.values(prices).filter((p) => usable(p) && Date.now() - p.at >= GREY_AFTER_MS).length,
       waiting: queue.size,
       pauses: currentPauses(),
       reads: Object.fromEntries(Object.entries(ROUTES).map(([k, r]) => [k, r.reads])),
