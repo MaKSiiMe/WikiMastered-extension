@@ -18,9 +18,14 @@ const WME = (() => {
    * vente). Le site le calcule dans le navigateur à partir de /api/marketplace/cards/{id}/price-history ; on refait
    * le même calcul sur la même réponse, pour afficher exactement son chiffre.
    * Format relevé le 22/11 : { computed_at, by_rarity: { "SR": { weekly: [ { start, avg, min, max, count } ] } } }.
-   * -> { "SR": { avg, count, week: "2026-11-16" } }
+   * `sales12` : ventes de la rareté sur les 12 dernières semaines (semaine en cours comprise), pour juger si le prix
+   * est fiable (`reliable`).
+   * -> { "SR": { avg, count, week: "2026-11-16", sales12 } }
    */
-  function quotes(history) {
+  function quotes(history, now = new Date()) {
+    const from = new Date(`${weekStart(now)}T00:00:00Z`);
+    from.setUTCDate(from.getUTCDate() - 7 * (RECENT_WEEKS - 1));
+    const cutoff = from.toISOString().slice(0, 10);
     const out = {};
     const byRarity = history && history.by_rarity;
     if (!byRarity || typeof byRarity !== "object") return out;
@@ -30,10 +35,24 @@ const WME = (() => {
       const latest = weekly
         .filter((p) => p && Number(p.avg) > 0 && Number(p.count) > 0)
         .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")))[0];
-      if (latest) out[rarity] = { avg: Number(latest.avg), count: Number(latest.count), week: String(latest.start || "") };
+      if (!latest) continue;
+      const sales12 = weekly.filter((p) => p && String(p.start || "") >= cutoff)
+        .reduce((sum, p) => sum + Math.max(0, Number(p.count) || 0), 0);
+      out[rarity] = { avg: Number(latest.avg), count: Number(latest.count), week: String(latest.start || ""), sales12 };
     }
     return out;
   }
+
+  /** Semaines prises en compte pour juger un prix (comme Toolbox : 12, semaine en cours comprise). */
+  const RECENT_WEEKS = 12;
+  /** Seuil par défaut : un prix est fiable à partir de 3 ventes sur 12 semaines (réglable dans la fenêtre). */
+  const MIN_SALES = 3;
+
+  /**
+   * Prix fiable ? true : assez de ventes sur 12 semaines ; false : trop peu, le badge l'affiche « ≈ » ; null : inconnu
+   * (prix relevé avant la 0.6, sans ce compte).
+   */
+  const reliable = (q, minSales = MIN_SALES) => (q && Number.isFinite(q.sales12) ? q.sales12 >= minSales : null);
 
   // Semaines du site : elles commencent le lundi, jour calendaire de Paris (relevé par LeadOn/Wikimasters-Toolbox,
   // core/prices.js : c'est la clé `start` de price-history). Les mois aussi suivent le calendrier de Paris.
@@ -365,7 +384,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, currentWeek, weekStart, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

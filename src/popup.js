@@ -64,7 +64,8 @@ function render(state) {
     pullsRecap(state.pulls),
     h("button", { on: { click: async () => render(await ask("reread")) } }, "Relire tous les prix"),
     h("p", { className: "muted" },
-      "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté."));
+      "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté ; « ≈ » quand il repose sur " +
+      "trop peu de ventes."));
 }
 
 // Récap des paquets ouverts, à la main et en auto (src/content.js, pullRecap de src/lib.js), s'il y en a. La
@@ -179,6 +180,21 @@ async function setupShared() {
   if (cfg.on) check();
 }
 setupShared();
+
+// Réglage du seuil de fiabilité d'un prix (« ≈ » en dessous). Hors de `main`, redessiné chaque seconde : le champ
+// garde sa saisie. La valeur vient de l'onglet ouvert (src/content.js) et lui est renvoyée à chaque changement.
+async function setupMinSales() {
+  const state = await ask("state");
+  if (!state) return;
+  const input = h("input", { type: "number", min: 1, max: 50, step: 1, value: state.minSales, className: "small" });
+  input.addEventListener("change", async () => {
+    const reply = await ask("minSales", { value: input.value });
+    if (reply) input.value = reply.minSales;
+  });
+  document.getElementById("settings").replaceChildren(
+    h("label", {}, "Prix fiable à partir de ", input, " vente(s) sur 12 semaines (sinon « ≈ »)"));
+}
+setupMinSales();
 
 // Les compteurs suivent l'arrivée des prix tant que la fenêtre est ouverte.
 const refresh = async () => render(await ask("state"));

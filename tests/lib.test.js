@@ -15,8 +15,23 @@ test("le prix moyen est celui de la dernière semaine avec des ventes, comme sur
       XX: { weekly: [{ start: "2026-11-16", avg: 5, count: 5 }] },
     },
   };
-  assert.deepEqual(WME.quotes(history), { L: { avg: 9000, count: 8, week: "2026-11-16" } }); // SR sans prix, XX inconnue
+  const now = new Date("2026-11-24T12:00:00Z");
+  assert.deepEqual(WME.quotes(history, now), { L: { avg: 9000, count: 8, week: "2026-11-16", sales12: 12 } }); // SR sans prix, XX inconnue
   assert.deepEqual(WME.quotes(null), {});
+});
+
+test("prix fiable : au moins 3 ventes sur les 12 dernières semaines (semaine en cours comprise)", () => {
+  const now = new Date("2026-11-24T12:00:00Z"); // semaine du 23/11 ; la 12e semaine en arrière commence le 07/09
+  const history = { by_rarity: { R: { weekly: [
+    { start: "2026-08-31", avg: 50, count: 9 }, // 13e semaine : trop vieille
+    { start: "2026-09-07", avg: 60, count: 1 },
+    { start: "2026-11-16", avg: 70, count: 1 },
+  ] } } };
+  const q = WME.quotes(history, now).R;
+  assert.equal(q.sales12, 2);
+  assert.equal(WME.reliable(q), false);
+  assert.equal(WME.reliable(q, 2), true);
+  assert.equal(WME.reliable({ avg: 70, count: 1, week: "2026-11-16" }), null); // relevé avant la 0.6
 });
 
 test("semaine en cours : son lundi, à l'heure de Paris comme le site", () => {
@@ -37,9 +52,9 @@ test("les ventes de /sales redonnent l'historique de price-history quand elles s
   assert.deepEqual(history.by_rarity.R.weekly, [{ start: "2026-11-23", avg: 1101, min: 1000, max: 1201, count: 2 }]);
   assert.deepEqual(history.by_rarity.C.weekly, [{ start: "2026-11-16", avg: 300, min: 300, max: 300, count: 1 }]);
   assert.deepEqual(history.by_rarity.R.monthly, [{ start: "2026-11-01", avg: 1101, min: 1000, max: 1201, count: 2 }]);
-  assert.deepEqual(WME.quotes(history), {
-    R: { avg: 1101, count: 2, week: "2026-11-23" },
-    C: { avg: 300, count: 1, week: "2026-11-16" },
+  assert.deepEqual(WME.quotes(history, new Date("2026-11-24T12:00:00Z")), {
+    R: { avg: 1101, count: 2, week: "2026-11-23", sales12: 2 },
+    C: { avg: 300, count: 1, week: "2026-11-16", sales12: 1 },
   });
   assert.equal(WME.totalSales(history), 3);
   assert.equal(WME.salesComplete({ recent }), true);
