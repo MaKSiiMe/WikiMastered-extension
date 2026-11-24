@@ -20,6 +20,7 @@
   const FLAG_MARKET_UNBLOCK = "wmMarketUnblock";
   const FLAG_LAST_INPUT = "wmLastInput";       // date de la dernière action réelle du joueur, sur n'importe quelle page
   const FLAG_RELAY_TRY = "wmRelayTry";         // date du dernier départ vers /pulls pour un relais
+  const FLAG_PACK_PAUSE = "wmPackPause";       // { until, daily } : le site limite les ouvertures, pas de clic avant
 
   // Délais de la boucle d'ouverture de packs.
   const PACK_TICK_MS = 5000;
@@ -135,8 +136,24 @@
       }
     } else if (event.data.type === "need-click") {
       await chrome.storage.local.set({ [FLAG_NEED_CLICK]: Date.now() }).catch(() => {});
+    } else if (event.data.type === "pack-limited") {
+      // Le site limite les ouvertures : pas de clic avant la date qu'il donne. Limite du jour sans date : on attend
+      // le lendemain (minuit et 5 min, heure locale). Sans date du tout : une minute.
+      const { retryAt, daily } = event.data;
+      const tomorrow = new Date();
+      tomorrow.setHours(24, 5, 0, 0);
+      const until = Number.isFinite(retryAt) ? retryAt : daily ? tomorrow.getTime() : Date.now() + 60e3;
+      await chrome.storage.local.set({ [FLAG_PACK_PAUSE]: { until: until + 1000, daily: Boolean(daily) } }).catch(() => {});
     }
   });
+
+  // « Pause : limite du site jusqu'à 14:32 » si une pause d'ouverture est en cours, sinon null.
+  async function packPauseMessage() {
+    const { [FLAG_PACK_PAUSE]: pause } = await chrome.storage.local.get(FLAG_PACK_PAUSE);
+    if (!pause || !(pause.until > Date.now())) return null;
+    const time = new Date(pause.until).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+    return `Pause : ${pause.daily ? "limite du jour atteinte" : "le site limite les ouvertures"}, jusqu'à ${time}`;
+  }
 
   // Boucle d'ouverture de packs sur /pulls et de relais vers /pulls quand wmNeedClick est actif.
   async function packTick() {
@@ -174,6 +191,13 @@
       const relayActive = Boolean(needClick);
       if (!settings.autoClickPack && !relayActive && !relay) {
         statusMessage = "Désactivé";
+        return;
+      }
+
+      // Le site a demandé d'attendre : ni clic ni relais avant la fin de la pause.
+      const pauseMessage = await packPauseMessage();
+      if (pauseMessage) {
+        statusMessage = pauseMessage;
         return;
       }
 

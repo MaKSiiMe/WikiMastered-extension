@@ -7,9 +7,9 @@ Les idées reprises d'autres outils citent leur source (voir [Outils existants](
 
 Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/LeadOn/Wikimasters-Toolbox) (`docs/site-api.md`, non officielle, peut changer).
 
-- [ ] **Quota des prix.** `/api/marketplace/cards/{id}/price-history` est limité à ~90-100 lectures par 10 min ; au-delà, 403 `automation_limit` pendant ~10 min. Aujourd'hui l'extension lit un prix toutes les 0,5-0,8 s et prend ce 403 pour une erreur passagère (3 essais puis « ? »). À faire : budget d'environ 80 lectures par 10 min (partagé entre onglets), vraie pause sur `automation_limit`, et le dire dans la fenêtre. Le quota est sans doute par compte : il est partagé avec le bot.
-- [ ] **Vérification humaine.** Le vrai signal est `human_verification_required` : le mettre dans `looksLikeChallenge` (src/inject.js) à la place des champs devinés.
-- [ ] **Limites de l'ouverture de paquets.** `POST /api/packs/open` : 429 + `Retry-After` si deux ouvertures à moins de 2 s ; corps `rate_limited` / `retry_after` / `rate_limit_daily` ; 400 avec `packs_remaining: 0` quand il n'y a plus rien. `click.js` doit respecter `retry_after` et s'arrêter sur la limite quotidienne.
+- [x] **Quota des prix.** (0.4.1) `/api/marketplace/cards/{id}/price-history` est limité à ~90-100 lectures par 10 min ; au-delà, 403 `automation_limit` pendant ~10 min. Aujourd'hui l'extension lit un prix toutes les 0,5-0,8 s et prend ce 403 pour une erreur passagère (3 essais puis « ? »). À faire : budget d'environ 80 lectures par 10 min (partagé entre onglets), vraie pause sur `automation_limit`, et le dire dans la fenêtre. Le quota est sans doute par compte : il est partagé avec le bot.
+- [x] **Vérification humaine.** (0.4.1) Le vrai signal est `human_verification_required` : le mettre dans `looksLikeChallenge` (src/inject.js) à la place des champs devinés.
+- [x] **Limites de l'ouverture de paquets.** (0.4.1) `POST /api/packs/open` : 429 + `Retry-After` si deux ouvertures à moins de 2 s ; corps `rate_limited` / `retry_after` / `rate_limit_daily` ; 400 avec `packs_remaining: 0` quand il n'y a plus rien. `click.js` doit respecter `retry_after` et s'arrêter sur la limite quotidienne.
 - [ ] **Déblocage marché.** Rien n'écrit encore `wmNeedVerify` : décider d'où vient le signal (réponse `human_verification_required` d'une mise, ou le bot), ou retirer la fonction.
 
 ## v1 : le collectionneur
