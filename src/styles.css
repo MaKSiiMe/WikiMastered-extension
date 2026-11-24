@@ -75,3 +75,6 @@
 .wme-fiche .wme-trend { display: block; width: 100%; max-width: 220px; height: 16px; color: #fde68a; opacity: 0.8; }
 .wme-fiche .wme-actions { margin-top: 4px; display: flex; gap: 12px; }
 .wme-fiche .wme-link { all: unset; cursor: pointer; color: #fde68a; text-decoration: underline; font-weight: 400; }
+
+/* Image Wikipédia d'une carte sans image (#25, option), par-dessus l'emplacement de l'image du site. */
+.wme-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }

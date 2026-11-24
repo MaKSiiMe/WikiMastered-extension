@@ -146,6 +146,8 @@ const WME = (() => {
       rarity: String(rarity || raw.rarity || "").toUpperCase(),
       shiny: Boolean(shiny ?? raw.is_shiny),
       url: typeof raw.wikipedia_url === "string" && /^https:\/\/[a-z-]+\.wikipedia\.org\//.test(raw.wikipedia_url) ? raw.wikipedia_url : "",
+      // Sans image (#25) : true si le site n'en a pas et ne l'a pas masquée ; undefined si la réponse n'en dit rien.
+      noImage: "image_url" in raw ? !raw.image_url && !raw.hide_image : undefined,
     };
   }
 

@@ -80,6 +80,8 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
   - **Doublons** : chaque carte possédée en plusieurs exemplaires, l'exemplaire gardé (le plus rare), ceux en trop et ce qu'ils valent, les favoris (verrouillés par le site) signalés.
   - Avec les prix partagés, le panneau se synchronise avec le serveur par différence (au plus toutes les 5 min) : il demande ce qui a été lu depuis la dernière fois, puis seulement les prix des cartes de ta collection et de tes souhaits qu'il n'a pas. C'est par là qu'arrivent les lectures de ton bot.
   - La collection est lue dans la base du site, comme le site lui-même (une quinzaine de requêtes pour 15 000 cartes, avec ta session ; aucune route de prix), puis gardée 12 h. Le panneau ne lit rien lui-même : il passe par l'onglet du site ouvert.
+- **Images Wikipédia** (option, coupée par défaut, onglet Réglages) : une carte sans image reçoit la vignette de son article Wikipédia (seul le titre est envoyé à Wikipédia). Jamais pour une image masquée par le site.
+- **Nouveautés** : après une mise à jour, un point sur l'icône ; le bouton « Nouveautés » du panneau liste ce qui a changé, avec un bouton pour activer chaque nouvelle option.
 - **Bonne affaire / surcoté** (marché) : à côté du prix, `−34 %` en vert quand l'enchère finit dans moins de 15 minutes et que la mise minimum est au moins 25 % sous la cote, `+60 %` en rouge quand elle la dépasse d'au moins 50 %. Seulement avec un prix fiable, jamais pour un shiny ; se coupe dans les Réglages.
 - **Fiche d'une carte** : sous le titre de la fenêtre d'une carte, un bloc par rareté vendue :
   - prix (« ≈ » s'il est incertain), ventes de la semaine et des 12 dernières ;
