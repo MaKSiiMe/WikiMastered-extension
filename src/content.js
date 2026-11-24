@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -42,7 +42,7 @@
   const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause de toutes les lectures, partagée entre onglets
   const ROUTE_PAUSE_KEY = "wmRoutePause"; // { history: { until, reason }, sales: … } : quota d'une seule route atteint
   const SUPABASE_KEY = "wmSupabase";   // { base, apikey } relevés dans les requêtes du site (src/inject.js)
-  const COLLECTION_KEY = "wmCollection"; // { at, rows: [[exemplaire, carte, rareté, nombre, favori, shiny]], titles }
+  const COLLECTION_KEY = "wmCollection"; // { at, rows: [[exemplaire, carte, rareté, nombre, favori, shiny, image]], titles }
   const COLLECTION_TTL_MS = 12 * 3600e3; // collection relue au plus toutes les 12 h, sauf demande
   const VALUE_KEY = "wmValueHistory";   // valeur de la collection, une mesure par jour (#18)
   const OWNED_KEY = "wmOwned";          // possession des cartes d'après les réponses du site : { id: 1 | 0 }
@@ -841,7 +841,8 @@
   let collectionReading = null;
   async function readCollection(force) {
     const cached = await store.get(COLLECTION_KEY, null);
-    if (!force && cached && Date.now() - cached.at < COLLECTION_TTL_MS) return cached;
+    const complete = cached && (!cached.rows.length || cached.rows[0].length >= 7); // la 0.7 ne gardait pas l'image
+    if (!force && complete && Date.now() - cached.at < COLLECTION_TTL_MS) return cached;
     collectionReading ||= (async () => {
       const access = await store.get(SUPABASE_KEY, null);
       if (!access) throw new Error("Accès à la collection pas encore repéré : recharge une page du site, puis réessaie.");
@@ -850,7 +851,7 @@
       const titles = {};
       const ids = new Set();
       for (let page = 0; page < 60; page++) {
-        const query = "user_cards?select=id,card_id,count,starred,is_shiny,snapshot_rarity,cards(wikipedia_title,rarity)" +
+        const query = "user_cards?select=id,card_id,count,starred,is_shiny,snapshot_rarity,cards(wikipedia_title,rarity,image_url,hide_image)" +
           `&order=obtained_at.desc,id.asc&limit=1000&offset=${page * 1000}`;
         const response = await fetch(access.base + query, {
           credentials: "omit",
@@ -864,7 +865,9 @@
           ids.add(r.id);
           const card = r.cards || {};
           const rarity = String(r.snapshot_rarity || card.rarity || "").toUpperCase();
-          rows.push([String(r.id), String(r.card_id), rarity, Math.max(1, Number(r.count) || 1), r.starred ? 1 : 0, r.is_shiny ? 1 : 0]);
+          // Image : 0 sans image (ou masquée par le site), 2 GIF, 1 autre (filtres #19).
+          const image = card.hide_image || !card.image_url ? 0 : /\.gif(?:[?#]|$)/i.test(String(card.image_url)) ? 2 : 1;
+          rows.push([String(r.id), String(r.card_id), rarity, Math.max(1, Number(r.count) || 1), r.starred ? 1 : 0, r.is_shiny ? 1 : 0, image]);
           if (card.wikipedia_title) titles[r.card_id] = String(card.wikipedia_title);
         }
         if (batch.length < 1000) break;
@@ -906,6 +909,19 @@
     });
   }
   const time = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+  // Prix d'une carte pour les filtres : jamais vendue (relevé récent sans vente dans cette rareté), prix, ou inconnu.
+  function cardPriceInfo(cardId, rarity) {
+    const entry = prices[cardId];
+    if (!usable(entry)) return { state: "unknown" };
+    const q = entry.q[rarity];
+    return q ? { state: "price", avg: q.avg, sure: reliable(q, settings.minWeekSales) } : { state: "never" };
+  }
+
+  async function panelFilter(criteria) {
+    const collection = await readCollection(false);
+    return filterCollection(collection.rows, collection.titles, cardPriceInfo, criteria || {});
+  }
 
   async function panelSummary(refresh) {
     const collection = await readCollection(refresh);
@@ -1159,7 +1175,8 @@
       // Panneau latéral (src/panel.js) : réponse asynchrone.
       const work = message.action === "loadPrices" ? loadMissingPrices(Array.isArray(message.rarities) ? message.rarities : [])
         .then((count) => ({ ok: true, count }))
-        : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
+        : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
+          : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
       work.catch((error) => ({ ok: false, error: String((error && error.message) || error) })).then(reply);
       return true;
     }

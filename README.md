@@ -69,6 +69,12 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
 
 - **Panneau latéral** (clic sur l'icône de l'extension, ou `Alt+Maj+W`) : les grandes vues, à côté du site, ouvertes pendant que tu navigues.
   - **Collection** : valeur estimée de toute ta collection (prix connus seulement), par rareté, cartes les plus chères, courbe de la valeur (une mesure par jour), et un bouton pour lire les prix manquants des L, UR, SR (après les cartes affichées, dans le quota habituel).
+  - **Filtres** : sur toute ta collection, pas seulement la page de 50 cartes du site, avec des critères cumulables :
+    - doublons, cartes sans image, GIF ;
+    - raretés, mots du titre (accents ignorés) ;
+    - jamais vendues dans leur rareté, ou vendues dans une tranche de prix.
+
+    Tri par valeur ou par rareté.
   - **Doublons** : chaque carte possédée en plusieurs exemplaires, l'exemplaire gardé (le plus rare), ceux en trop et ce qu'ils valent, les favoris (verrouillés par le site) signalés.
   - La collection est lue dans la base du site, comme le site lui-même (une quinzaine de requêtes pour 15 000 cartes, avec ta session ; aucune route de prix), puis gardée 12 h. Le panneau ne lit rien lui-même : il passe par l'onglet du site ouvert.
 - **Fiche d'une carte** : sous le titre de la fenêtre d'une carte, un bloc par rareté vendue : prix (« ≈ » s'il est incertain), ventes de la semaine et des 12 dernières, plus bas et plus haut sur 4 semaines, variation sur la semaine d'avant, et si tu as déjà la carte. Aucune requête en plus : c'est l'historique que le site lit en ouvrant la fiche.
