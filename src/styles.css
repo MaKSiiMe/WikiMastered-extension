@@ -63,3 +63,9 @@
   font: 600 12px/1.5 system-ui, sans-serif;
 }
 .wme-fiche > .wme-note { color: #d1d5db; font-weight: 400; }
+
+/* Marché (#16) : « −34 % » bonne affaire (vert), « +120 % » surcoté (rouge), après le prix. */
+.wme-badge[data-deal]:not([data-deal=""])::after { content: attr(data-deal); margin-left: 0.4em; padding: 0 0.3em; border-radius: 0.3em;
+  font-size: 0.8em; font-weight: 700; color: #fff; }
+.wme-badge[data-deal-kind="deal"]::after { background: #16a34a; }
+.wme-badge[data-deal-kind="high"]::after { background: #dc2626; }
