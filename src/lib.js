@@ -421,6 +421,113 @@ const WME = (() => {
    */
   const addLimitEvent = (log, event, max = 50) => [event, ...(Array.isArray(log) ? log : [])].slice(0, max);
 
+  // ------------------------------------------------------------------ session et collection (panneau)
+  const decodeBase64Url = (text) => {
+    const b64 = String(text).replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+    return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
+  };
+  const jwtClaims = (token) => {
+    try {
+      return JSON.parse(decodeBase64Url(String(token).split(".")[1]));
+    } catch (_) {
+      return {};
+    }
+  };
+
+  /**
+   * Session Supabase du joueur, lue dans les cookies du site (@supabase/ssr écrit `sb-<ref>-auth-token`, préfixé
+   * « base64- », parfois découpé en morceaux `.0`, `.1`…). -> { token, userId, expiresAt (ms) } ou null.
+   */
+  function sessionFromCookies(cookies, name) {
+    let single = null;
+    const chunks = [];
+    for (const entry of String(cookies || "").split(";")) {
+      const i = entry.indexOf("=");
+      if (i < 0) continue;
+      const key = entry.slice(0, i).trim();
+      const value = entry.slice(i + 1).trim();
+      if (key === name) single = value;
+      else if (key.startsWith(`${name}.`) && Number.isInteger(Number(key.slice(name.length + 1)))) {
+        chunks.push([Number(key.slice(name.length + 1)), value]);
+      }
+    }
+    const parse = (raw) => {
+      try {
+        let text = decodeURIComponent(raw);
+        if (text.startsWith("base64-")) text = decodeBase64Url(text.slice(7));
+        const session = JSON.parse(text);
+        const claims = jwtClaims(session.access_token);
+        const userId = (session.user && session.user.id) || claims.sub;
+        if (!session.access_token || !userId) return null;
+        return { token: session.access_token, userId, expiresAt: (session.expires_at || claims.exp || 0) * 1000 };
+      } catch (_) {
+        return null;
+      }
+    };
+    const joined = chunks.length ? chunks.sort((a, b) => a[0] - b[0]).map((c) => c[1]).join("") : null;
+    return [joined, single].filter(Boolean).map(parse).filter(Boolean).sort((a, b) => b.expiresAt - a.expiresAt)[0] || null;
+  }
+
+  /**
+   * Bilan de la collection pour le panneau (#18, #22). rows : [[exemplaire, carte, rareté, nombre, favori, shiny]],
+   * titles : { carte: titre }, priceOf(carte, rareté) -> { avg, sure } ou null. Un shiny n'a pas de prix propre : il
+   * compte sans valeur. Doublons : pour chaque carte, l'exemplaire le plus rare est gardé, les autres sont en trop.
+   */
+  function collectionSummary(rows, titles, priceOf) {
+    const byRarity = {};
+    const byCard = new Map();
+    let copies = 0;
+    let value = 0;
+    let unsure = 0;
+    let unpriced = 0;
+    for (const [, cardId, rarity, count, starred, shiny] of rows) {
+      const n = Math.max(1, Number(count) || 1);
+      const p = shiny ? null : priceOf(cardId, rarity);
+      const r = (byRarity[rarity] ||= { copies: 0, value: 0, unpriced: 0 });
+      r.copies += n;
+      copies += n;
+      if (p) {
+        r.value += p.avg * n;
+        value += p.avg * n;
+        if (!p.sure) unsure += n;
+      } else {
+        r.unpriced += n;
+        unpriced += n;
+      }
+      const card = byCard.get(cardId) || byCard.set(cardId, []).get(cardId);
+      for (let i = 0; i < n; i++) card.push({ rarity, starred: Boolean(starred), shiny: Boolean(shiny), price: p });
+    }
+    const title = (id) => (titles && titles[id]) || id;
+    const top = [...byCard].flatMap(([id, list]) => list.filter((c) => c.price).map((c) => ({ id, title: title(id), rarity: c.rarity, price: c.price.avg, sure: c.price.sure })))
+      .sort((a, b) => b.price - a.price)
+      .filter((c, i, all) => all.findIndex((o) => o.id === c.id && o.rarity === c.rarity) === i)
+      .slice(0, 15);
+    const duplicates = [];
+    for (const [id, list] of byCard) {
+      if (list.length < 2) continue;
+      const sorted = [...list].sort((a, b) => rank(b.rarity) - rank(a.rarity) || Number(a.shiny) - Number(b.shiny));
+      const extra = sorted.slice(1);
+      duplicates.push({
+        id, title: title(id), copies: list.length, kept: sorted[0].rarity,
+        extra: extra.map((c) => c.rarity + (c.shiny ? "✦" : "")).join(", "),
+        locked: extra.filter((c) => c.starred).length,
+        value: extra.reduce((sum, c) => sum + (c.price ? c.price.avg : 0), 0),
+      });
+    }
+    duplicates.sort((a, b) => b.value - a.value || b.copies - a.copies);
+    const order = Object.keys(byRarity).sort((a, b) => rank(b) - rank(a));
+    return { copies, distinct: byCard.size, value, unsure, unpriced, byRarity: order.map((r) => ({ rarity: r, ...byRarity[r] })), top, duplicates };
+  }
+
+  /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
+  function addDailyValue(history, day, value, max = 365) {
+    const next = { ...(history || {}), [day]: Math.round(value) };
+    const days = Object.keys(next).sort();
+    for (const d of days.slice(0, Math.max(0, days.length - max))) delete next[d];
+    return next;
+  }
+
   /** 1250 -> « 1 250 », 12500 -> « 12,5 k » : court, pour un badge. */
   function wb(n) {
     if (!Number.isFinite(n)) return "?";
@@ -428,7 +535,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

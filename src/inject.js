@@ -46,8 +46,28 @@
     return { retryAt, daily };
   }
 
+  // Accès à la base Supabase du site : sa clé publique et son adresse, relevées dans ses propres requêtes (aucune
+  // valeur écrite en dur). src/content.js s'en sert pour lire toute la collection en une quinzaine de requêtes.
+  let supabaseSent = "";
+  function noteSupabase(input, init) {
+    const url = new URL(typeof input === "string" ? input : (input && input.url) || String(input), location.href);
+    if (!url.hostname.endsWith(".supabase.co")) return;
+    const headers = new Headers((init && init.headers) || (input && input.headers) || undefined);
+    const apikey = headers.get("apikey") || "";
+    if (!apikey || apikey === supabaseSent) return;
+    supabaseSent = apikey;
+    const message = { source: "wme-page", kind: "supabase", base: `${url.origin}/rest/v1/`, apikey };
+    buffer.push(message);
+    forward(message);
+  }
+
   const originalFetch = window.fetch;
   window.fetch = async function (...args) {
+    try {
+      noteSupabase(args[0], args[1]);
+    } catch (_) {
+      // adresse ou en-têtes illisibles : ignoré
+    }
     const response = await originalFetch.apply(this, args);
     try {
       const input = args[0];

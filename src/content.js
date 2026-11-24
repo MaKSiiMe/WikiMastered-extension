@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -41,6 +41,10 @@
   const SALES_READS_KEY = "wmSalesReads"; // … de /sales, qui a son propre quota (readBudget)
   const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause de toutes les lectures, partagée entre onglets
   const ROUTE_PAUSE_KEY = "wmRoutePause"; // { history: { until, reason }, sales: … } : quota d'une seule route atteint
+  const SUPABASE_KEY = "wmSupabase";   // { base, apikey } relevés dans les requêtes du site (src/inject.js)
+  const COLLECTION_KEY = "wmCollection"; // { at, rows: [[exemplaire, carte, rareté, nombre, favori, shiny]], titles }
+  const COLLECTION_TTL_MS = 12 * 3600e3; // collection relue au plus toutes les 12 h, sauf demande
+  const VALUE_KEY = "wmValueHistory";   // valeur de la collection, une mesure par jour (#18)
   const OWNED_KEY = "wmOwned";          // possession des cartes d'après les réponses du site : { id: 1 | 0 }
   const LIMITS_KEY = "wmLimitLog";      // refus du site, avec les lectures qui les ont précédés (addLimitEvent)
   const PULLS_KEY = "wmPulls";          // journal des paquets ouverts, à la main ou en auto (récap de la fenêtre)
@@ -494,6 +498,10 @@
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.source !== "wme-page") return;
+    if (event.data.kind === "supabase") {
+      noteSupabaseAccess(event.data);
+      return;
+    }
     if (event.data.kind === "price-history") {
       fromSite(event.data.url, event.data.data);
       return;
@@ -785,6 +793,111 @@
   // Sur un profil (vitrines), le prix n'apparaît qu'au survol de la carte : une vitrine se regarde.
   const hoverOnly = () => location.pathname.startsWith("/profile");
 
+  // ------------------------------------------------------------------ collection complète (panneau : #18, #22)
+  // Lue dans la base Supabase du site, comme le site lui-même : table user_cards (la base ne laisse voir que ses propres
+  // cartes), 1000 exemplaires par requête, avec la session du joueur (cookie du site). Ce n'est pas une route de prix :
+  // aucun quota de prix n'est entamé. Le jeton ne part que vers cette base.
+  function noteSupabaseAccess({ base, apikey }) {
+    if (!/^https:\/\/[a-z0-9]+\.supabase\.co\/rest\/v1\/$/.test(String(base)) || typeof apikey !== "string" || apikey.length > 400) return;
+    store.set(SUPABASE_KEY, { base, apikey });
+  }
+
+  async function session(base) {
+    const name = `sb-${new URL(base).hostname.split(".")[0]}-auth-token`;
+    let s = sessionFromCookies(document.cookie, name);
+    if (!s || s.expiresAt - Date.now() < 120e3) {
+      // Une requête au site fait renouveler le cookie de session quand il expire bientôt.
+      await siteFetch(location.origin + "/api/wikibidous", { credentials: "include" }).catch(() => {});
+      s = sessionFromCookies(document.cookie, name);
+    }
+    if (!s) throw new Error("Session du site introuvable : recharge la page, connecté.");
+    return s;
+  }
+
+  let collectionReading = null;
+  async function readCollection(force) {
+    const cached = await store.get(COLLECTION_KEY, null);
+    if (!force && cached && Date.now() - cached.at < COLLECTION_TTL_MS) return cached;
+    collectionReading ||= (async () => {
+      const access = await store.get(SUPABASE_KEY, null);
+      if (!access) throw new Error("Accès à la collection pas encore repéré : recharge une page du site, puis réessaie.");
+      const { token } = await session(access.base);
+      const rows = [];
+      const titles = {};
+      const ids = new Set();
+      for (let page = 0; page < 60; page++) {
+        const query = "user_cards?select=id,card_id,count,starred,is_shiny,snapshot_rarity,cards(wikipedia_title,rarity)" +
+          `&order=obtained_at.desc,id.asc&limit=1000&offset=${page * 1000}`;
+        const response = await fetch(access.base + query, {
+          credentials: "omit",
+          headers: { apikey: access.apikey, authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) throw new Error(`Lecture de la collection refusée (HTTP ${response.status})`);
+        const batch = await response.json();
+        if (!Array.isArray(batch)) throw new Error("Réponse inattendue de la base du site");
+        for (const r of batch) {
+          if (!r || !r.card_id || ids.has(r.id)) continue; // ligne décalée par une écriture pendant la lecture
+          ids.add(r.id);
+          const card = r.cards || {};
+          const rarity = String(r.snapshot_rarity || card.rarity || "").toUpperCase();
+          rows.push([String(r.id), String(r.card_id), rarity, Math.max(1, Number(r.count) || 1), r.starred ? 1 : 0, r.is_shiny ? 1 : 0]);
+          if (card.wikipedia_title) titles[r.card_id] = String(card.wikipedia_title);
+        }
+        if (batch.length < 1000) break;
+      }
+      const result = { at: Date.now(), rows, titles };
+      await store.set(COLLECTION_KEY, result);
+      // Possession exacte : les cartes de la collection sont à nous, les autres non (une carte vendue perd son ✓).
+      const mine = new Set(rows.map((r) => r[1]));
+      for (const id of owned.keys()) if (!mine.has(id)) owned.set(id, false);
+      for (const id of mine) owned.set(id, true);
+      store.set(OWNED_KEY, Object.fromEntries([...owned].map(([id, flag]) => [id, flag ? 1 : 0])));
+      return result;
+    })().finally(() => {
+      collectionReading = null;
+    });
+    return collectionReading;
+  }
+
+  // Prix d'une carte dans une rareté pour les bilans : { avg, sure } ou null (inconnu, plus de 7 jours, jamais vendue).
+  function cardPrice(cardId, rarity) {
+    const entry = prices[cardId];
+    const q = usable(entry) && entry.q[rarity];
+    return q ? { avg: q.avg, sure: reliable(q, settings.minWeekSales) } : null;
+  }
+
+  async function panelSummary(refresh) {
+    const collection = await readCollection(refresh);
+    const summary = collectionSummary(collection.rows, collection.titles, cardPrice);
+    const history = addDailyValue(await store.get(VALUE_KEY, {}), new Date().toISOString().slice(0, 10), summary.value);
+    store.set(VALUE_KEY, history);
+    const missing = {};
+    for (const [, cardId, rarity, , , shiny] of collection.rows) {
+      if (!shiny && !cardPrice(cardId, rarity)) (missing[rarity] ||= new Set()).add(cardId);
+    }
+    return {
+      at: collection.at, summary: { ...summary, duplicates: summary.duplicates.slice(0, 300) }, history,
+      missing: Object.fromEntries(Object.entries(missing).map(([r, set]) => [r, set.size])),
+      waiting: queue.size,
+    };
+  }
+
+  // Prix manquants des raretés choisies : mis en file après les cartes affichées (priorité « background »), les plus
+  // rares d'abord. Le cache partagé est consulté avant chaque lecture.
+  async function loadMissingPrices(rarities) {
+    const collection = await readCollection(false);
+    const wanted = new Set(rarities);
+    const cards = collection.rows.filter(([, cardId, rarity, , , shiny]) => !shiny && wanted.has(rarity) && !cardPrice(cardId, rarity))
+      .sort((a, b) => rank(b[2]) - rank(a[2]));
+    const done = new Set();
+    for (const [, cardId, rarity] of cards) {
+      if (done.has(cardId)) continue;
+      done.add(cardId);
+      want(cardId, "background", rarity);
+    }
+    return done.size;
+  }
+
   // ------------------------------------------------------------------ fiche d'une carte (#47)
   // Sous le titre de la fenêtre d'une carte, un bloc par rareté vendue : prix (« ≈ » s'il est incertain), ventes de la
   // semaine et des 12 dernières, plus bas et plus haut sur 4 semaines, variation par rapport à la semaine d'avant ; et
@@ -997,7 +1110,15 @@
   // clickInfo est lu depuis src/click.js via window.__wmeClickState(), car les deux scripts partagent le même
   // monde isolé (« document_idle »).
   chrome.runtime.onMessage.addListener((message, _sender, reply) => {
-    if (!message || typeof message.type !== "string") return;
+    if (!message || typeof message.type !== "string") return undefined;
+    if (message.type === "panel") {
+      // Panneau latéral (src/panel.js) : réponse asynchrone.
+      const work = message.action === "loadPrices" ? loadMissingPrices(Array.isArray(message.rarities) ? message.rarities : [])
+        .then((count) => ({ ok: true, count }))
+        : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
+      work.catch((error) => ({ ok: false, error: String((error && error.message) || error) })).then(reply);
+      return true;
+    }
     if (message.type === "badges") {
       settings.badges = Boolean(message.on);
       store.set("settings", settings);
