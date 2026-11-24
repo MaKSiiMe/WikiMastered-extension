@@ -1181,6 +1181,43 @@
     return result;
   }
 
+  // ------------------------------------------------------------------ familles (#20)
+  // Recherche dans le catalogue du site (la route de sa page « Toutes les cartes », une requête par recherche), puis
+  // possession et prix le plus bas connu des cartes d'une famille.
+  async function catalogSearch(q, page = 1) {
+    const text = String(q || "").trim().slice(0, 80);
+    if (text.length < 2) throw new Error("Au moins 2 lettres.");
+    const response = await siteFetch(`${location.origin}/api/cards?page=${Math.max(1, Number(page) || 1)}&sort=rarity&q=${encodeURIComponent(text)}`, { credentials: "include" });
+    if (!response.ok) throw new Error(`Recherche refusée par le site (HTTP ${response.status})`);
+    const data = await response.json();
+    note(data);
+    noteOwnership("/api/cards", data);
+    const seenIds = new Set();
+    return cardsIn(data).filter((c) => !seenIds.has(c.id) && seenIds.add(c.id)).slice(0, 50).map((c) => ({ id: c.id, title: c.title, rarity: c.rarity }));
+  }
+
+  async function cardsInfo(ids) {
+    const collection = await store.get(COLLECTION_KEY, null);
+    const mine = new Set(collection ? collection.rows.map((r) => r[1]) : []);
+    const out = {};
+    for (const id of (Array.isArray(ids) ? ids : []).slice(0, 2000)) {
+      const entry = prices[id];
+      const q = usable(entry) ? entry.q : null;
+      const list = q ? Object.entries(q) : [];
+      const cheapest = list.reduce((best, [rarity, v]) => (!best || v.avg < best.avg ? { rarity, avg: v.avg } : best), null);
+      out[id] = { owned: mine.has(id) || owned.get(id) === true, cheapest, read: Boolean(q) };
+    }
+    return out;
+  }
+
+  async function tagCards(tagId) {
+    const collection = await readCollection(false);
+    const cardTags = collection.cardTags || {};
+    const out = new Map();
+    for (const [copy, id] of collection.rows) if ((cardTags[copy] || []).includes(String(tagId))) out.set(id, { id, title: collection.titles[id] || id });
+    return [...out.values()];
+  }
+
   async function panelSummary(refresh) {
     const collection = await readCollection(refresh);
     startSharedFill(refresh);
@@ -1540,6 +1577,11 @@
       const work = message.action === "loadPrices" ? loadMissingPrices(Array.isArray(message.rarities) ? message.rarities : [])
         .then((count) => ({ ok: true, count }))
         : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
+        : message.action === "catalogSearch" ? catalogSearch(message.q, message.page).then((cards) => ({ ok: true, cards }))
+        : message.action === "cardsInfo" ? cardsInfo(message.ids).then((info) => ({ ok: true, info }))
+        : message.action === "tagCards" ? tagCards(message.tag).then((cards) => ({ ok: true, cards }))
+        : message.action === "loadCardPrices" ? Promise.resolve((message.ids || []).slice(0, 500).forEach((id) => want(String(id), "background")))
+          .then(() => ({ ok: true }))
         : message.action === "tags" ? readCollection(false).then((c) => ({ ok: true, tags: c.tags || {}, tagsError: c.tagsError || "" }))
         : message.action === "friendRead" ? readFriend(message.pseudo, message.rarities)
           .then((f) => ({ ok: true, pseudo: f.pseudo, copies: f.rows.length, truncated: f.truncated }))
