@@ -69,10 +69,11 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
 
 - **Panneau latéral** (clic sur l'icône de l'extension, ou `Alt+Maj+W`) : les grandes vues, à côté du site, ouvertes pendant que tu navigues.
   - **Collection** : valeur estimée de toute ta collection (prix connus seulement), par rareté, cartes les plus chères, courbe de la valeur (une mesure par jour), et un bouton pour lire les prix manquants des L, UR, SR (après les cartes affichées, dans le quota habituel).
-  - **Filtres** : sur toute ta collection, pas seulement la page de 50 cartes du site, avec des critères cumulables :
+  - **Filtres** : sur toute ta collection, ou celle d'un autre joueur (lue par son profil, une page par seconde, avec « seulement celles que je n'ai pas »), pas seulement la page de 50 cartes du site. Critères cumulables :
     - doublons, cartes sans image, GIF ;
     - raretés, mots du titre (accents ignorés) ;
-    - jamais vendues dans leur rareté, ou vendues dans une tranche de prix.
+    - jamais vendues dans leur rareté, ou vendues dans une tranche de prix ;
+    - étiquettes : avec, sans, ou l'une des tiennes.
 
     Tri par valeur ou par rareté.
   - **Souhaits** : ta liste de souhaits du site, chaque carte au prix le plus bas connu (toutes raretés) et les autres raretés, et le coût total.

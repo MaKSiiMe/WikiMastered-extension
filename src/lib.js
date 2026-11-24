@@ -570,19 +570,25 @@ const WME = (() => {
    * Filtres de la collection (#19). rows : [[exemplaire, carte, rareté, nombre, favori, shiny, image]] (image : 0 sans
    * image ou masquée, 1 image, 2 GIF, undefined inconnu) ; priceInfo(carte, rareté) -> { state: "price" | "never" |
    * "unknown", avg?, sure? }. criteria : { duplicates, noImage, gif, rarities: [], text, price: "all" | "never" |
-   * "range", min, max, sort: "value-desc" | "value-asc" | "rarity" }. Une ligne par carte et par rareté.
+   * "range", min, max, sort: "value-desc" | "value-asc" | "rarity", tag: "" | "any" | "none" | id d'étiquette (#63),
+   * notMine (cartes que je n'ai pas, pour la collection d'un ami : #51) }. Une ligne par carte et par rareté ; une
+   * ligne passe le filtre d'étiquette si au moins un de ses exemplaires y répond. tagsOf(exemplaire) -> [ids],
+   * isMine(carte) -> true | false | undefined.
    * -> { count, items: [{ id, title, rarity, copies, shiny, image, price, sure, state }] } (300 premières)
    */
-  function filterCollection(rows, titles, priceInfo, criteria = {}) {
+  function filterCollection(rows, titles, priceInfo, criteria = {}, tagsOf = () => [], isMine = () => undefined) {
     const groups = new Map();
     const perCard = new Map();
-    for (const [, id, rarity, count, , shiny, image] of rows) {
+    for (const [copy, id, rarity, count, , shiny, image] of rows) {
       const n = Math.max(1, Number(count) || 1);
       perCard.set(id, (perCard.get(id) || 0) + n);
       const key = `${id}|${rarity}`;
-      const g = groups.get(key) || groups.set(key, { id, title: (titles && titles[id]) || id, rarity, copies: 0, shiny: false, image }).get(key);
+      const g = groups.get(key) || groups.set(key, { id, title: (titles && titles[id]) || id, rarity, copies: 0, shiny: false, image, tags: new Set(), untagged: false }).get(key);
       g.copies += n;
       if (shiny) g.shiny = true;
+      const tags = tagsOf(copy) || [];
+      if (!tags.length) g.untagged = true;
+      for (const t of tags) g.tags.add(String(t));
     }
     const words = String(criteria.text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/\s+/).filter(Boolean);
     const plain = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -596,10 +602,15 @@ const WME = (() => {
       if (criteria.gif && g.image !== 2) continue;
       if (rarities.size && !rarities.has(g.rarity)) continue;
       if (words.length && !words.every((w) => plain(g.title).includes(w))) continue;
+      if (criteria.tag === "any" && !g.tags.size) continue;
+      if (criteria.tag === "none" && !g.untagged) continue;
+      if (criteria.tag && !["any", "none"].includes(criteria.tag) && !g.tags.has(String(criteria.tag))) continue;
+      if (criteria.notMine && isMine(g.id) !== false) continue;
       const info = g.shiny ? { state: "unknown" } : priceInfo(g.id, g.rarity) || { state: "unknown" };
       if (criteria.price === "never" && info.state !== "never") continue;
       if (criteria.price === "range" && !(info.state === "price" && info.avg >= Math.min(min, max) && info.avg <= Math.max(min, max))) continue;
-      out.push({ ...g, state: info.state, price: info.state === "price" ? info.avg : null, sure: Boolean(info.sure) });
+      const { tags, untagged, ...rest } = g;
+      out.push({ ...rest, state: info.state, price: info.state === "price" ? info.avg : null, sure: Boolean(info.sure) });
     }
     const value = (x) => (x.price === null ? null : x.price);
     if (criteria.sort === "rarity") out.sort((a, b) => rank(b.rarity) - rank(a.rarity) || a.title.localeCompare(b.title));
@@ -677,6 +688,28 @@ const WME = (() => {
     return { median: at(0.5), q1: at(0.25), q3: at(0.75), n: v.length };
   }
 
+  /**
+   * Collection d'un autre joueur (#51), une page de /api/profile/{pseudo}/collection : { collection: [{ id, card_id?,
+   * count, is_shiny, snapshot_rarity, owned_by_viewer, card }] }. -> { rows (même forme que la mienne), titles, mine:
+   * { carte: true | false } (owned_by_viewer) }
+   */
+  function friendRows(data) {
+    const rows = [];
+    const titles = {};
+    const mine = {};
+    for (const e of (data && Array.isArray(data.collection) ? data.collection : [])) {
+      const c = e && e.card;
+      if (!c || !c.id) continue;
+      const id = String(c.id);
+      const rarity = String(e.snapshot_rarity || c.rarity || "").toUpperCase();
+      const image = c.hide_image || !c.image_url ? 0 : /\.gif(?:[?#]|$)/i.test(String(c.image_url)) ? 2 : 1;
+      rows.push([String(e.id || `${id}|${rarity}`), id, rarity, Math.max(1, Number(e.count) || 1), e.starred ? 1 : 0, e.is_shiny ? 1 : 0, image]);
+      if (c.wikipedia_title) titles[id] = String(c.wikipedia_title);
+      if (typeof e.owned_by_viewer === "boolean") mine[id] = e.owned_by_viewer;
+    }
+    return { rows, titles, mine };
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -692,7 +725,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

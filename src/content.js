@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -967,7 +967,7 @@
     collectionReading ||= (async () => {
       const access = await store.get(SUPABASE_KEY, null);
       if (!access) throw new Error("Accès à la collection pas encore repéré : recharge une page du site, puis réessaie.");
-      const { token } = await session(access.base);
+      const { token, userId } = await session(access.base);
       const rows = [];
       const titles = {};
       const ids = new Set();
@@ -993,7 +993,33 @@
         }
         if (batch.length < 1000) break;
       }
-      const result = { at: Date.now(), rows, titles };
+      // Étiquettes (#63) : les miennes, puis leurs exemplaires étiquette par étiquette (une lecture globale dépasse le
+      // délai du serveur, relevé par Toolbox), 3 à la fois. Un échec ne gêne pas la collection.
+      const tags = {};
+      const cardTags = {};
+      let tagsError = "";
+      try {
+        const get = async (query) => {
+          const response = await fetch(access.base + query, { credentials: "omit", headers: { apikey: access.apikey, authorization: `Bearer ${token}` } });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
+        };
+        for (const t of await get(`tags?select=id,name&user_id=eq.${encodeURIComponent(userId)}`)) if (t && t.id) tags[t.id] = String(t.name || t.id);
+        const queue = Object.keys(tags);
+        const worker = async () => {
+          for (let id = queue.shift(); id; id = queue.shift()) {
+            for (let page = 0; page < 30; page++) {
+              const links = await get(`user_card_tags?select=user_card_id&tag_id=eq.${encodeURIComponent(id)}&order=user_card_id.asc&limit=1000&offset=${page * 1000}`);
+              for (const l of links) if (l && l.user_card_id) (cardTags[l.user_card_id] ||= []).push(id);
+              if (links.length < 1000) break;
+            }
+          }
+        };
+        await Promise.all([worker(), worker(), worker()]);
+      } catch (error) {
+        tagsError = String((error && error.message) || error);
+      }
+      const result = { at: Date.now(), rows, titles, tags, cardTags, tagsError };
       await store.set(COLLECTION_KEY, result);
       // Possession exacte : les cartes de la collection sont à nous, les autres non (une carte vendue perd son ✓).
       const mine = new Set(rows.map((r) => r[1]));
@@ -1060,6 +1086,100 @@
     });
   }
   const time = () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+  // Liste de souhaits (#21), lue dans la même base : table wishlist_items (ses propres souhaits), gardée 30 min.
+  let wishCache = null;
+  async function readWishlist(force) {
+    if (!force && wishCache && Date.now() - wishCache.at < 30 * 60e3) return wishCache.wishes;
+    const access = await store.get(SUPABASE_KEY, null);
+    if (!access) throw new Error("Accès à la base pas encore repéré : recharge une page du site, puis réessaie.");
+    const { token } = await session(access.base);
+    const wishes = [];
+    const ids = new Set();
+    for (let page = 0; page < 20; page++) {
+      const response = await fetch(`${access.base}wishlist_items?select=card_id,cards(wikipedia_title)&order=card_id.asc&limit=1000&offset=${page * 1000}`, {
+        credentials: "omit", headers: { apikey: access.apikey, authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error(`Lecture de la liste de souhaits refusée (HTTP ${response.status})`);
+      const batch = await response.json();
+      if (!Array.isArray(batch)) throw new Error("Réponse inattendue de la base du site");
+      for (const w of batch) {
+        if (!w || !w.card_id || ids.has(w.card_id)) continue;
+        ids.add(w.card_id);
+        wishes.push({ id: String(w.card_id), title: String((w.cards && w.cards.wikipedia_title) || w.card_id) });
+      }
+      if (batch.length < 1000) break;
+    }
+    wishCache = { at: Date.now(), wishes };
+    return wishes;
+  }
+
+  async function panelWishlist(refresh) {
+    const wishes = await readWishlist(refresh);
+    startSharedFill(refresh); // les souhaits font partie des cartes synchronisées (en arrière-plan)
+    return wishlistSummary(wishes, (id) => (usable(prices[id]) ? prices[id].q : null), (id) => owned.get(id));
+  }
+
+  async function loadWishPrices() {
+    const wishes = await readWishlist(false);
+    let count = 0;
+    for (const w of wishes) if (!usable(prices[w.id])) { want(w.id, "background"); count += 1; }
+    return count;
+  }
+
+  // Prix d'une carte pour les filtres : jamais vendue (relevé récent sans vente dans cette rareté), prix, ou inconnu.
+  function cardPriceInfo(cardId, rarity) {
+    const entry = prices[cardId];
+    if (!usable(entry)) return { state: "unknown" };
+    const q = entry.q[rarity];
+    return q ? { state: "price", avg: q.avg, sure: reliable(q, settings.minWeekSales) } : { state: "never" };
+  }
+
+  async function panelFilter(criteria = {}) {
+    if (criteria.source && criteria.source !== "me") {
+      const friend = friendCache.get(criteria.source.toLowerCase());
+      if (!friend) throw new Error(`Collection de ${criteria.source} pas encore lue : clique sur « Lire sa collection ».`);
+      const result = filterCollection(friend.rows, friend.titles, cardPriceInfo, criteria, () => [],
+        (id) => (id in friend.mine ? friend.mine[id] : owned.get(id)));
+      return { ...result, source: `${friend.pseudo} (lue il y a ${ago(Date.now() - friend.at)}, raretés ${friend.rarities.join(", ")})` };
+    }
+    const collection = await readCollection(false);
+    const cardTags = collection.cardTags || {};
+    return filterCollection(collection.rows, collection.titles, cardPriceInfo, criteria, (copy) => cardTags[copy] || [], (id) => owned.get(id));
+  }
+
+  // Collection d'un autre joueur (#51), par la route de son profil, comme le site quand on la fait défiler : 50
+  // exemplaires par page, une page par seconde, 60 pages au plus, seulement les raretés choisies. Gardée 12 h.
+  const friendCache = new Map(); // pseudo en minuscules -> { pseudo, at, rarities, rows, titles, mine }
+  async function readFriend(pseudo, rarities) {
+    const name = String(pseudo || "").trim();
+    if (!/^[\w.-]{1,40}$/.test(name)) throw new Error("Pseudo invalide.");
+    const wanted = (Array.isArray(rarities) && rarities.length ? rarities : ["L", "UR", "SR"]).filter((r) => rank(r) >= 0);
+    const known = friendCache.get(name.toLowerCase());
+    if (known && Date.now() - known.at < COLLECTION_TTL_MS && wanted.every((r) => known.rarities.includes(r))) return known;
+    const all = { rows: [], titles: {}, mine: {} };
+    let pages = 0;
+    for (const rarity of wanted) {
+      for (let page = 1; pages < 60; page++, pages++) {
+        if (pages) await sleep(1000);
+        const response = await siteFetch(`${location.origin}/api/profile/${encodeURIComponent(name)}/collection?page=${page}&sort=rarity&stats=0&rarity=${rarity}`, { credentials: "include" });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new Error(siteLimit(response.status, body) ? "le site limite les lectures : réessaie plus tard" : `HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        const part = friendRows(data);
+        all.rows.push(...part.rows);
+        Object.assign(all.titles, part.titles);
+        Object.assign(all.mine, part.mine);
+        noteOwnership(`/api/profile/${name}/collection`, data);
+        if (!data || !Array.isArray(data.collection) || data.collection.length < 50) break;
+      }
+    }
+    const result = { pseudo: name, at: Date.now(), rarities: wanted, ...all, truncated: pages >= 60 };
+    friendCache.set(name.toLowerCase(), result);
+    return result;
+  }
 
   async function panelSummary(refresh) {
     const collection = await readCollection(refresh);
@@ -1420,6 +1540,9 @@
       const work = message.action === "loadPrices" ? loadMissingPrices(Array.isArray(message.rarities) ? message.rarities : [])
         .then((count) => ({ ok: true, count }))
         : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
+        : message.action === "tags" ? readCollection(false).then((c) => ({ ok: true, tags: c.tags || {}, tagsError: c.tagsError || "" }))
+        : message.action === "friendRead" ? readFriend(message.pseudo, message.rarities)
+          .then((f) => ({ ok: true, pseudo: f.pseudo, copies: f.rows.length, truncated: f.truncated }))
         : message.action === "wishlist" ? panelWishlist(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "loadWishPrices" ? loadWishPrices().then((count) => ({ ok: true, count }))
           : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));

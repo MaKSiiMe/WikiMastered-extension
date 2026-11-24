@@ -225,7 +225,7 @@ async function duplicatesView() {
 // ------------------------------------------------------------------ Filtres (#19) : sur toute la collection, pas
 // seulement la page de 50 cartes du site. Formulaire construit une fois ; « Filtrer » relance la recherche.
 const RARITY_CODES = ["L", "UR", "SR", "R", "PC", "C"];
-let lastCriteria = { sort: "value-desc", price: "all", rarities: [] };
+let lastCriteria = { sort: "value-desc", price: "all", rarities: [], source: "me", tag: "" };
 
 async function filtersView() {
   const c = lastCriteria;
@@ -239,6 +239,38 @@ async function filtersView() {
   const price = h("select", { on: { change: (e) => { c.price = e.target.value; range.hidden = c.price !== "range"; } } },
     ...[["all", "Tous les prix"], ["never", "Jamais vendues (dans leur rareté)"], ["range", "Vendues entre…"]].map(([v, l]) => h("option", { value: v, selected: c.price === v }, l)));
   const range = h("span", { hidden: c.price !== "range" }, " ", min, " et ", max, " WB");
+  // Source (#51) : ma collection, ou celle d'un autre joueur, lue par la route de son profil (raretés cochées ci-dessus,
+  // L, UR, SR sans rien de coché ; une page par seconde).
+  const pseudo = h("input", { type: "text", value: c.source !== "me" ? c.source : "", placeholder: "pseudo", className: "small wide-small" });
+  const friendStatus = h("span", { className: "muted" });
+  const readButton = h("button", { className: "act small", on: { click: async () => {
+    const name = pseudo.value.trim();
+    if (!name) return;
+    readButton.disabled = true;
+    friendStatus.textContent = " lecture… (une page par seconde)";
+    const reply = await ask("panel", { action: "friendRead", pseudo: name, rarities: c.rarities });
+    readButton.disabled = false;
+    if (!reply.ok) { friendStatus.textContent = ` ${reply.error}`; return; }
+    c.source = reply.pseudo;
+    friendStatus.textContent = ` ${fr(reply.copies)} exemplaire(s) lus${reply.truncated ? " (60 pages au plus : choisis moins de raretés)" : ""}.`;
+    run();
+  } } }, "Lire sa collection");
+  const source = h("select", { on: { change: (e) => { c.source = e.target.value === "me" ? "me" : pseudo.value.trim() || "?"; friendBox.hidden = e.target.value === "me"; } } },
+    h("option", { value: "me", selected: c.source === "me" }, "Ma collection"), h("option", { value: "friend", selected: c.source !== "me" }, "La collection d'un joueur"));
+  const friendBox = h("div", { hidden: c.source === "me" }, pseudo, " ", readButton, friendStatus,
+    h("label", { className: "inline" }, h("input", { type: "checkbox", checked: Boolean(c.notMine), on: { change: (e) => { c.notMine = e.target.checked; } } }), " Seulement celles que je n'ai pas"));
+  pseudo.addEventListener("input", () => { if (c.source !== "me") c.source = pseudo.value.trim(); });
+
+  // Étiquettes (#63), lues avec ma collection.
+  const tag = h("select", { on: { change: (e) => { c.tag = e.target.value; } } }, h("option", { value: "" }, "Toutes les étiquettes"));
+  ask("panel", { action: "tags" }).then((reply) => {
+    if (!reply.ok) return;
+    const names = Object.entries(reply.tags || {}).sort(([, a], [, b]) => a.localeCompare(b));
+    tag.append(h("option", { value: "any", selected: c.tag === "any" }, "Avec une étiquette"), h("option", { value: "none", selected: c.tag === "none" }, "Sans étiquette"),
+      ...names.map(([id, name]) => h("option", { value: id, selected: c.tag === id }, name)));
+    if (reply.tagsError) tag.title = `Étiquettes illisibles : ${reply.tagsError}`;
+  });
+
   const sort = h("select", { on: { change: (e) => { c.sort = e.target.value; } } },
     ...[["value-desc", "Valeur décroissante"], ["value-asc", "Valeur croissante"], ["rarity", "Rareté"]].map(([v, l]) => h("option", { value: v, selected: c.sort === v }, l)));
   const run = async () => {
@@ -247,6 +279,7 @@ async function filtersView() {
     if (!reply.ok) return results.replaceChildren(...error(reply));
     const label = (i) => (i.state === "price" ? `${i.sure ? "" : "≈ "}${wb(i.price)}` : i.state === "never" ? "jamais vendue" : i.shiny ? "✦ ?" : "?");
     results.replaceChildren(
+      reply.source && h("p", { className: "muted" }, `Collection de ${reply.source}`),
       h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${reply.items.length} premières)` : ""}`),
       h("table", {}, h("tr", {}, h("th", {}, "Carte"), h("th", {}, "Rareté"), h("th", { className: "num" }, "Ex."), h("th", { className: "num" }, "Prix")),
         ...reply.items.map((i) => h("tr", {}, h("td", {}, i.title), h("td", {}, i.rarity + (i.shiny ? " ✦" : "")),
@@ -254,10 +287,12 @@ async function filtersView() {
       h("p", { className: "muted" }, "« ? » : prix pas encore lu (onglet Collection pour lire les prix manquants)."));
   };
   return [
+    h("label", {}, "Dans ", source), friendBox,
     h("div", {}, check("duplicates", "Doublons"), check("noImage", "Sans image"), check("gif", "GIF")),
     h("div", {}, ...chips),
     text,
     h("div", {}, price, range),
+    h("label", {}, "Étiquette ", tag),
     h("label", {}, "Trier par ", sort),
     h("button", { className: "act", on: { click: run } }, "Filtrer"),
     results,
