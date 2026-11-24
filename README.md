@@ -67,6 +67,7 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
 
 ## Utilisation
 
+- **Fiche d'une carte** : sous le titre de la fenêtre d'une carte, un bloc par rareté vendue : prix (« ≈ » s'il est incertain), ventes de la semaine et des 12 dernières, plus bas et plus haut sur 4 semaines, variation sur la semaine d'avant, et si tu as déjà la carte. Aucune requête en plus : c'est l'historique que le site lit en ouvrant la fiche.
 - **Ordre de la collection** : le site revient au tri par rareté à chaque visite de ta collection. Choisis « Nom », « Favoris » ou « Date d'ajout » dans la fenêtre de l'extension : elle le sélectionne dans le menu du site à chaque arrivée sur la page (la grille par rareté s'affiche un instant). Un ordre choisi ensuite à la main est gardé jusqu'à la visite suivante.
 - L'icône de l'extension (la carte dorée, à épingler via la pièce de puzzle de la barre d'outils) ouvre sa fenêtre, comme le raccourci `Alt+Maj+W` (Chrome ne le pose qu'à la première installation : sinon, règle-le dans `chrome://extensions/shortcuts`) : combien de cartes ont un badge, leur valeur, le bilan de l'échange affiché, les badges à cacher ou montrer, les deux cases de l'automatisation par clic avec son état, et « Relire tous les prix ».
 - Survole un badge pour le détail : semaine du prix, nombre de ventes, prix des autres raretés si la carte n'a pas de vente dans la sienne.

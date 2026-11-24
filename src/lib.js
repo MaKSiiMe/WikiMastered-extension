@@ -18,14 +18,17 @@ const WME = (() => {
    * vente). Le site le calcule dans le navigateur à partir de /api/marketplace/cards/{id}/price-history ; on refait
    * le même calcul sur la même réponse, pour afficher exactement son chiffre.
    * Format relevé le 22/11 : { computed_at, by_rarity: { "SR": { weekly: [ { start, avg, min, max, count } ] } } }.
-   * `sales12` : ventes de la rareté sur les 12 dernières semaines (semaine en cours comprise), pour juger si le prix
-   * est fiable (`reliable`).
-   * -> { "SR": { avg, count, week: "2026-11-16", sales12 } }
+   * `sales12` : ventes de la rareté sur les 12 dernières semaines (semaine en cours comprise). `low4` / `high4` : plus
+   * bas et plus haut des ventes des 4 dernières semaines (null sans vente) ; `prev` : moyenne de la semaine avec des
+   * ventes d'avant celle du prix (null s'il n'y en a pas), pour la variation.
+   * -> { "SR": { avg, count, week: "2026-11-16", sales12, low4, high4, prev } }
    */
   function quotes(history, now = new Date()) {
     const from = new Date(`${weekStart(now)}T00:00:00Z`);
     from.setUTCDate(from.getUTCDate() - 7 * (RECENT_WEEKS - 1));
     const cutoff = from.toISOString().slice(0, 10);
+    from.setUTCDate(from.getUTCDate() + 7 * (RECENT_WEEKS - 4));
+    const cutoff4 = from.toISOString().slice(0, 10);
     const out = {};
     const byRarity = history && history.by_rarity;
     if (!byRarity || typeof byRarity !== "object") return out;
@@ -36,9 +39,18 @@ const WME = (() => {
         .filter((p) => p && Number(p.avg) > 0 && Number(p.count) > 0)
         .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")))[0];
       if (!latest) continue;
-      const sales12 = weekly.filter((p) => p && String(p.start || "") >= cutoff)
-        .reduce((sum, p) => sum + Math.max(0, Number(p.count) || 0), 0);
-      out[rarity] = { avg: Number(latest.avg), count: Number(latest.count), week: String(latest.start || ""), sales12 };
+      const sold = weekly.filter((p) => p && Number(p.count) > 0);
+      const sales12 = sold.filter((p) => String(p.start || "") >= cutoff).reduce((sum, p) => sum + Number(p.count), 0);
+      const recent4 = sold.filter((p) => String(p.start || "") >= cutoff4);
+      const lows = recent4.map((p) => Number(p.min ?? p.avg)).filter((n) => Number.isFinite(n) && n > 0);
+      const highs = recent4.map((p) => Number(p.max ?? p.avg)).filter((n) => Number.isFinite(n) && n > 0);
+      const before = sold.filter((p) => Number(p.avg) > 0 && String(p.start || "") < String(latest.start || ""))
+        .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")))[0];
+      out[rarity] = {
+        avg: Number(latest.avg), count: Number(latest.count), week: String(latest.start || ""), sales12,
+        low4: lows.length ? Math.min(...lows) : null, high4: highs.length ? Math.max(...highs) : null,
+        prev: before ? Number(before.avg) : null,
+      };
     }
     return out;
   }
