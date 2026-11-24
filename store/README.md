@@ -19,8 +19,8 @@ Validé par `web-ext lint` (outil officiel de Mozilla) : 0 erreur. Il reste 2 av
 4. Captures d'écran (1280 × 800 ou 640 × 400, de 1 à 5) :
    - badges sur la page Marché ;
    - panneau, onglet Collection ;
-   - fiche d'une carte avec son bloc ;
-   - bilan d'un échange.
+   - offre d'échange en cours ;
+   - panneau, onglets Filtres et Familles.
 5. Onglet **Confidentialité** :
    - objectif unique : « Afficher le prix moyen des cartes Wiki Masters et des outils de collection » ;
    - justification de chaque droit : ci-dessous ;
@@ -45,6 +45,6 @@ Validé par `web-ext lint` (outil officiel de Mozilla) : 0 erreur. Il reste 2 av
 | `https://www.wiki-masters.com/*` | Lire les cartes affichées et leurs prix sur le site, et y poser les badges. |
 | `https://*.workers.dev/*` (facultatif, demandé à l'activation) | Joindre le serveur de prix partagés, seulement si l'utilisateur l'active et donne son adresse. |
 
-## Avant de rendre l'extension publique
+## Automatisation par clic
 
-Les règles de la communauté Wiki Masters interdisent les scripts qui jouent à la place du joueur. L'**automatisation par clic** (ouverture auto des paquets, déblocage du marché) en fait partie. Avant une fiche publique, il vaut mieux la retirer de l'archive des boutiques, ou au minimum la laisser coupée par défaut avec l'avertissement actuel.
+Les règles de la communauté Wiki Masters interdisent les scripts qui jouent à la place du joueur. L'**automatisation par clic** (ouverture auto des paquets, déblocage du marché) en fait partie. Elle reste dans l'archive des boutiques (choix du 24/11/2026), coupée par défaut : l'activer demande d'accepter un avertissement (règles du site, risque de bannissement, responsabilité du joueur). La fiche le dit aussi, pour l'examen des boutiques.

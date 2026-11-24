@@ -1,6 +1,6 @@
 // Le panneau latéral de l'extension (Chrome side_panel, Firefox sidebar_action) : un clic sur l'icône ou Alt+Maj+W
-// l'ouvre (src/background.js). Plusieurs onglets : la page ouverte, la collection, les doublons, les paquets, les
-// réglages. Il ne lit rien lui-même : il demande tout au content script d'un onglet du site (src/content.js), qui garde
+// l'ouvre (src/background.js). Plusieurs onglets : la page ouverte, la collection, les filtres, les souhaits, les
+// familles, les enchères, les paquets, les réglages. Il ne lit rien lui-même : il demande tout au content script d'un onglet du site (src/content.js), qui garde
 // la seule file de lecture (budget, rafale, cache partagé).
 const { wb } = WME;
 const main = document.getElementById("main");
@@ -18,6 +18,26 @@ function h(tag, props, ...children) {
 }
 
 const fr = (n) => Math.round(n).toLocaleString("fr-FR");
+const pct = (part, total) => (total ? (part / total) * 100 : 0);
+const pctText = (part, total) => `${pct(part, total).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`;
+// Barre de proportion (raretés des paquets) : largeur relative à la plus grande valeur du tableau.
+const bar = (part, max) => h("div", { className: "bar" }, h("span", { style: `width: ${Math.max(1, pct(part, max)).toFixed(1)}%` }));
+
+// Fenêtre de confirmation dans le panneau (confirm() ne s'affiche pas dans le panneau latéral de Firefox).
+// { title, lines: [texte], strong?, check? (case à cocher exigée), ok, cancel } -> Promise<bool>
+function dialog({ title, lines = [], strong = "", check = "", ok = "Confirmer", cancel = "Annuler" }) {
+  return new Promise((resolve) => {
+    const close = (answer) => { wrap.remove(); resolve(answer); };
+    const okButton = h("button", { className: "act", disabled: Boolean(check), on: { click: () => close(true) } }, ok);
+    const box = check ? h("label", {}, h("input", { type: "checkbox", on: { change: (e) => { okButton.disabled = !e.target.checked; } } }), ` ${check}`) : null;
+    const wrap = h("div", { className: "modal-wrap", on: { click: (e) => { if (e.target === wrap) close(false); } } },
+      h("div", { className: "modal", role: "dialog" },
+        h("h3", {}, title), ...lines.map((l) => h("p", {}, l)), strong && h("p", {}, h("b", {}, strong)), box,
+        h("div", { className: "row" }, h("button", { className: "act", on: { click: () => close(false) } }, cancel), okButton)));
+    document.body.append(wrap);
+    okButton.focus();
+  });
+}
 const time = (at) => new Date(at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 const dateTime = (at) => new Date(at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 
@@ -65,10 +85,10 @@ async function newsView() {
 const TABS = {
   page: { label: "Page", every: 2e3, view: pageView },
   collection: { label: "Collection", every: 10e3, view: collectionView },
-  duplicates: { label: "Doublons", every: 10e3, view: duplicatesView },
   filters: { label: "Filtres", every: 0, view: filtersView },
   wishes: { label: "Souhaits", every: 10e3, view: wishesView },
   families: { label: "Familles", every: 0, view: familiesView },
+  auctions: { label: "Enchères", every: 5e3, view: auctionsView },
   packs: { label: "Paquets", every: 2e3, view: packsView },
   settings: { label: "Réglages", every: 0, view: settingsView },
   news: { label: "Nouveautés", every: 0, view: newsView, hidden: true },
@@ -113,6 +133,7 @@ async function pageView() {
   const state = await ask("state");
   if (!state || state.ok === false) return error(state || {});
   return [
+    draftView(state.draft),
     h("p", { className: "big" }, `≈ ${wb(state.value)} WB`),
     h("p", { className: "muted" }, `Valeur des ${state.tiles} carte(s) avec un badge sur la page`),
     ...state.trades.map((t) => h("p", { className: "trade" }, t)),
@@ -127,6 +148,25 @@ async function pageView() {
     h("p", { className: "muted" }, "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté ; « ≈ » quand il " +
       "repose sur trop peu de ventes. Au survol d'un badge : ventes, âge du relevé, qui l'a fait."),
   ];
+}
+
+// Offre en cours de composition (fenêtre « Échanger avec … » du site) : chaque carte de chaque côté, et l'écart.
+function draftView(d) {
+  if (!d) return null;
+  const side = (label, s, tab) => [
+    h("p", {}, h("b", {}, `${label} ≈ ${wb(s.value + s.wb)}`), s.seen < s.count ? h("span", { className: "muted" }, ` (ouvre « ${tab} » sur le site pour compter ${s.count - s.seen} carte(s))`) : null),
+    s.cards.length || s.wb ? h("table", {}, ...s.cards.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, c.rarity + (c.shiny ? " ✦" : "")),
+      h("td", { className: "num" }, c.price === null ? (c.shiny ? "pas de prix" : "?") : wb(c.price)))),
+    s.wb ? h("tr", {}, h("td", {}, "WikiBidous"), h("td", {}), h("td", { className: "num" }, wb(s.wb))) : null) : h("p", { className: "muted" }, "rien pour l'instant"),
+  ];
+  const verdict = Math.abs(d.gap) < 1 ? "Échange équilibré" : `${d.gap > 0 ? "En ta faveur" : `En faveur de ${d.friend}`} : ≈ ${wb(Math.abs(d.gap))}` +
+    (d.pct !== null ? ` (${d.gap > 0 ? "+" : "−"}${Math.abs(d.pct)} %)` : "");
+  return h("div", { className: "box" },
+    h("h3", {}, `Offre à ${d.friend}`),
+    ...side("Tu donnes", d.give, "Mes cartes"),
+    ...side("Tu reçois", d.get, `Cartes de ${d.friend}`),
+    h("p", { className: d.gap >= 0 ? "good" : "error" }, h("b", {}, verdict)),
+    h("p", { className: "muted" }, "Prix moyen du site dans la rareté de chaque carte. Les shiny n'ont pas de prix."));
 }
 
 function sharedLive(shared) {
@@ -146,7 +186,7 @@ function limitsLog(limits) {
       `${what[e.limit] || e.limit} après ${e.reads10m} lecture(s) en 10 min, dont ${e.reads1m} dans la dernière minute`)));
 }
 
-// ------------------------------------------------------------------ Collection (#18) et Doublons (#22)
+// ------------------------------------------------------------------ Collection (#18)
 async function summary(refresh) {
   return ask("panel", { action: "summary", refresh });
 }
@@ -208,96 +248,162 @@ async function collectionView(first) {
   ];
 }
 
-async function duplicatesView() {
-  const s = await summary(false);
-  if (!s.ok) return error(s);
-  const list = s.summary.duplicates;
-  if (!list.length) return [readLine(s), h("p", {}, "Aucun doublon.")];
-  const total = list.reduce((n, d) => n + d.value, 0);
-  return [
-    readLine(s),
-    h("p", {}, `${fr(list.length)} carte(s) en plusieurs exemplaires · exemplaires en trop ≈ ${fr(total)} WB`),
-    h("p", { className: "muted" }, "L'exemplaire le plus rare est gardé ; les autres sont « en trop ». Les favoris sont verrouillés par le " +
-      "site (ni vente, ni défausse, ni échange)."),
-    h("table", {},
-      h("tr", {}, h("th", {}, "Carte"), h("th", {}, "Gardé"), h("th", {}, "En trop"), h("th", { className: "num" }, "Valeur")),
-      ...list.map((d) => h("tr", {}, h("td", {}, d.title), h("td", {}, d.kept),
-        h("td", {}, d.extra + (d.locked ? ` (${d.locked} favori${d.locked > 1 ? "s" : ""})` : "")),
-        h("td", { className: "num" }, d.value ? wb(d.value) : "—")))),
-  ];
-}
-
 // ------------------------------------------------------------------ Filtres (#19) : sur toute la collection, pas
-// seulement la page de 50 cartes du site. Formulaire construit une fois ; « Filtrer » relance la recherche.
+// seulement la page de 50 cartes du site, la mienne ou celle d'un ami (#51). Formulaire construit une fois ; « Filtrer »
+// relance la recherche.
 const RARITY_CODES = ["L", "UR", "SR", "R", "PC", "C"];
-let lastCriteria = { sort: "value-desc", price: "all", rarities: [], source: "me", tag: "" };
+const DURATIONS = [[10, "10 min"], [30, "30 min"], [60, "1 h"], [180, "3 h"], [360, "6 h"], [720, "12 h"]];
+let lastCriteria = { sort: "value-desc", price: "all", rarities: [], source: "me", tags: [], friendRarities: ["L"] };
+
+// Pseudo du profil ouvert dans l'onglet du site (/profile/<pseudo>), pour le proposer d'office.
+async function visitedProfile() {
+  const tab = await siteTab();
+  const m = tab && tab.url ? /^https:\/\/(?:www\.)?wiki-masters\.com\/profile\/([^/?#]+)/.exec(tab.url) : null;
+  return m ? decodeURIComponent(m[1]) : "";
+}
 
 async function filtersView() {
   const c = lastCriteria;
   const results = h("div", {});
   const check = (key, label) => h("label", { className: "inline" }, h("input", { type: "checkbox", checked: Boolean(c[key]), on: { change: (e) => { c[key] = e.target.checked; } } }), ` ${label}`);
-  const chips = RARITY_CODES.map((r) => h("label", { className: "inline" }, h("input", { type: "checkbox", checked: c.rarities.includes(r),
-    on: { change: (e) => { c.rarities = e.target.checked ? [...c.rarities, r] : c.rarities.filter((x) => x !== r); } } }), ` ${r}`));
+  const rarityChips = (key) => RARITY_CODES.map((r) => h("label", { className: "inline" }, h("input", { type: "checkbox", checked: c[key].includes(r),
+    on: { change: (e) => { c[key] = e.target.checked ? [...c[key], r] : c[key].filter((x) => x !== r); } } }), ` ${r}`));
   const text = h("input", { type: "search", value: c.text || "", placeholder: "mots du titre", className: "wide", on: { input: (e) => { c.text = e.target.value; } } });
   const min = h("input", { type: "number", value: c.min ?? "", placeholder: "de", className: "small", on: { input: (e) => { c.min = e.target.value; } } });
   const max = h("input", { type: "number", value: c.max ?? "", placeholder: "à", className: "small", on: { input: (e) => { c.max = e.target.value; } } });
   const price = h("select", { on: { change: (e) => { c.price = e.target.value; range.hidden = c.price !== "range"; } } },
     ...[["all", "Tous les prix"], ["never", "Jamais vendues (dans leur rareté)"], ["range", "Vendues entre…"]].map(([v, l]) => h("option", { value: v, selected: c.price === v }, l)));
   const range = h("span", { hidden: c.price !== "range" }, " ", min, " et ", max, " WB");
-  // Source (#51) : ma collection, ou celle d'un autre joueur, lue par la route de son profil (raretés cochées ci-dessus,
-  // L, UR, SR sans rien de coché ; une page par seconde).
-  const pseudo = h("input", { type: "text", value: c.source !== "me" ? c.source : "", placeholder: "pseudo", className: "small wide-small" });
+
+  // Source : ma collection ou celle d'un ami (liste de mes amis sur le site), lue par la route de son profil.
+  const source = h("select", {}, h("option", { value: "me" }, "Ma collection"));
   const friendStatus = h("span", { className: "muted" });
-  const readButton = h("button", { className: "act small", on: { click: async () => {
-    const name = pseudo.value.trim();
-    if (!name) return;
+  const readButton = h("button", { className: "act small" }, "Lire sa collection");
+  const friendBox = h("div", { className: "box", hidden: c.source === "me" },
+    h("p", { className: "muted" }, "Raretés à lire (une page de 50 cartes par seconde : les L seules vont vite) :"),
+    h("div", {}, ...rarityChips("friendRarities")), readButton, friendStatus,
+    h("label", {}, h("input", { type: "checkbox", checked: Boolean(c.notMine), on: { change: (e) => { c.notMine = e.target.checked; } } }), " Seulement celles que je n'ai pas"));
+
+  // Étiquettes de la collection choisie : toutes celles cochées sont exigées (« Lieu » et « Religion » : temples, églises…).
+  const tagBox = h("div", {});
+  const loadTags = async () => {
+    tagBox.replaceChildren(h("span", { className: "muted" }, "Étiquettes : lecture…"));
+    const reply = await ask("panel", { action: "tags", source: c.source });
+    if (!reply.ok || reply.tagsError) return tagBox.replaceChildren(h("p", { className: "muted" }, `Étiquettes : ${reply.error || reply.tagsError}`));
+    const names = Object.entries(reply.tags || {}).sort(([, a], [, b]) => a.localeCompare(b, "fr"));
+    c.tags = c.tags.filter((id) => reply.tags[id]);
+    if (!names.length) return tagBox.replaceChildren(h("p", { className: "muted" }, c.source === "me" ? "Étiquettes : aucune." : "Étiquettes : lis d'abord sa collection."));
+    tagBox.replaceChildren(h("p", { className: "muted" }, "Étiquettes (toutes celles cochées) :"),
+      ...names.map(([id, name]) => h("label", { className: "inline" }, h("input", { type: "checkbox", checked: c.tags.includes(id),
+        on: { change: (e) => { c.tags = e.target.checked ? [...c.tags, id] : c.tags.filter((x) => x !== id); } } }), ` ${name}`)),
+      h("label", { className: "inline" }, h("input", { type: "checkbox", checked: Boolean(c.untagged), on: { change: (e) => { c.untagged = e.target.checked; } } }), " Sans étiquette"));
+  };
+
+  // Lecture d'un ami : elle continue dans l'onglet du site si le panneau change d'onglet ; on suit sa progression.
+  let following = null;
+  const follow = () => {
+    clearInterval(following);
+    following = setInterval(async () => {
+      if (!friendStatus.isConnected) return clearInterval(following);
+      const st = await ask("panel", { action: "friendStatus" });
+      if (st.ok && st.reading) friendStatus.textContent = ` lecture de ${st.reading.pseudo} : ${st.reading.pages} page(s), ${fr(st.reading.copies)} exemplaire(s)…`;
+      else clearInterval(following);
+    }, 1500);
+  };
+  const showKnown = (st) => {
+    const known = st.ok && st.known.find((k) => k.pseudo.toLowerCase() === String(c.source).toLowerCase());
+    friendStatus.textContent = known ? ` ${fr(known.copies)} exemplaire(s) lus il y a ${WME.ago(Date.now() - known.at)} (${known.rarities.join(", ")}).` : " pas encore lue.";
+  };
+  readButton.addEventListener("click", async () => {
+    if (c.source === "me") return;
     readButton.disabled = true;
-    friendStatus.textContent = " lecture… (une page par seconde)";
-    const reply = await ask("panel", { action: "friendRead", pseudo: name, rarities: c.rarities });
+    friendStatus.textContent = " lecture…";
+    follow();
+    const reply = await ask("panel", { action: "friendRead", pseudo: c.source, rarities: c.friendRarities });
+    clearInterval(following);
     readButton.disabled = false;
     if (!reply.ok) { friendStatus.textContent = ` ${reply.error}`; return; }
-    c.source = reply.pseudo;
     friendStatus.textContent = ` ${fr(reply.copies)} exemplaire(s) lus${reply.truncated ? " (60 pages au plus : choisis moins de raretés)" : ""}.`;
+    loadTags();
     run();
-  } } }, "Lire sa collection");
-  const source = h("select", { on: { change: (e) => { c.source = e.target.value === "me" ? "me" : pseudo.value.trim() || "?"; friendBox.hidden = e.target.value === "me"; } } },
-    h("option", { value: "me", selected: c.source === "me" }, "Ma collection"), h("option", { value: "friend", selected: c.source !== "me" }, "La collection d'un joueur"));
-  const friendBox = h("div", { hidden: c.source === "me" }, pseudo, " ", readButton, friendStatus,
-    h("label", { className: "inline" }, h("input", { type: "checkbox", checked: Boolean(c.notMine), on: { change: (e) => { c.notMine = e.target.checked; } } }), " Seulement celles que je n'ai pas"));
-  pseudo.addEventListener("input", () => { if (c.source !== "me") c.source = pseudo.value.trim(); });
-
-  // Étiquettes (#63), lues avec ma collection.
-  const tag = h("select", { on: { change: (e) => { c.tag = e.target.value; } } }, h("option", { value: "" }, "Toutes les étiquettes"));
-  ask("panel", { action: "tags" }).then((reply) => {
-    if (!reply.ok) return;
-    const names = Object.entries(reply.tags || {}).sort(([, a], [, b]) => a.localeCompare(b));
-    tag.append(h("option", { value: "any", selected: c.tag === "any" }, "Avec une étiquette"), h("option", { value: "none", selected: c.tag === "none" }, "Sans étiquette"),
-      ...names.map(([id, name]) => h("option", { value: id, selected: c.tag === id }, name)));
-    if (reply.tagsError) tag.title = `Étiquettes illisibles : ${reply.tagsError}`;
+  });
+  source.addEventListener("change", async () => {
+    c.source = source.value;
+    c.tags = [];
+    friendBox.hidden = c.source === "me";
+    const st = await ask("panel", { action: "friendStatus" });
+    if (st.ok && st.reading) { friendStatus.textContent = ` lecture de ${st.reading.pseudo} en cours…`; follow(); } else if (c.source !== "me") showKnown(st);
+    loadTags();
+  });
+  Promise.all([ask("panel", { action: "friends" }), visitedProfile(), ask("panel", { action: "friendStatus" })]).then(([reply, visited, st]) => {
+    if (!reply.ok) return source.append(h("option", { disabled: true }, `Amis : ${reply.error}`));
+    source.append(...reply.names.map((n) => h("option", { value: n }, n)));
+    // Sur le profil d'un ami : sa collection d'office (une fois par visite du profil).
+    const friend = reply.names.find((n) => n.toLowerCase() === visited.toLowerCase());
+    if (friend && c.lastVisited !== friend) [c.source, c.lastVisited] = [friend, friend];
+    if (c.source !== "me" && !reply.names.includes(c.source)) c.source = "me";
+    source.value = c.source;
+    friendBox.hidden = c.source === "me";
+    if (st.ok && st.reading) { friendStatus.textContent = ` lecture de ${st.reading.pseudo} en cours…`; follow(); } else if (c.source !== "me") showKnown(st);
+    loadTags();
   });
 
   const sort = h("select", { on: { change: (e) => { c.sort = e.target.value; } } },
     ...[["value-desc", "Valeur décroissante"], ["value-asc", "Valeur croissante"], ["rarity", "Rareté"]].map(([v, l]) => h("option", { value: v, selected: c.sort === v }, l)));
+
+  // Mise en vente d'un exemplaire en trop (ma collection) : prix de départ et durée, puis confirmation.
+  const sellForm = (item, row, cell) => {
+    if (row.nextElementSibling && row.nextElementSibling.classList.contains("sell")) return row.nextElementSibling.remove();
+    const amount = h("input", { type: "number", min: 1, step: 1, value: item.price ? Math.round(item.price) : "", className: "small wide-small" });
+    const minutes = h("select", {}, ...DURATIONS.map(([m, l]) => h("option", { value: m, selected: m === 60 }, l)));
+    const status = h("span", { className: "muted" });
+    const go = h("button", { className: "act small", on: { click: async () => {
+      const base = Math.round(Number(amount.value));
+      if (!(base >= 1)) { status.textContent = " prix de départ ?"; return; }
+      const label = DURATIONS.find(([m]) => m === Number(minutes.value))[1];
+      if (!await dialog({ title: "Mettre en vente", lines: [`Un exemplaire de « ${item.title} » (${item.rarity}), mise de départ ${fr(base)} WB, pendant ${label}.`,
+        "L'enchère part sur le marché du site, comme avec son bouton « Mettre aux enchères »."], ok: "Mettre en vente" })) return;
+      go.disabled = true;
+      status.textContent = " envoi…";
+      const reply = await ask("panel", { action: "sell", copy: item.sellCopy, base, minutes: Number(minutes.value) });
+      if (!reply.ok) { go.disabled = false; status.textContent = ` ${reply.error}`; return; }
+      status.textContent = " en vente sur le marché.";
+      cell.replaceChildren(h("span", { className: "good" }, "en vente"));
+    } } }, "Mettre en vente");
+    row.after(h("tr", { className: "sell" }, h("td", { colSpan: 5 }, "Mise de départ ", amount, " WB · durée ", minutes, " ", go, status)));
+  };
+
   const run = async () => {
     results.replaceChildren(h("p", { className: "muted" }, "Recherche…"));
     const reply = await ask("panel", { action: "filter", criteria: c });
     if (!reply.ok) return results.replaceChildren(...error(reply));
     const label = (i) => (i.state === "price" ? `${i.sure ? "" : "≈ "}${wb(i.price)}` : i.state === "never" ? "jamais vendue" : i.shiny ? "✦ ?" : "?");
+    // Tous les exemplaires de la carte (doublons) : « L · UR ×2 · SR✦ », 🔒 pour les favoris (verrouillés par le site).
+    const variants = (i) => i.variants.map((v) => `${v.rarity}${v.shiny ? "✦" : ""}${v.copies > 1 ? ` ×${v.copies}` : ""}${v.starred ? " 🔒" : ""}`).join(" · ");
+    const mine = c.source === "me";
     results.replaceChildren(
       reply.source && h("p", { className: "muted" }, `Collection de ${reply.source}`),
       h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${reply.items.length} premières)` : ""}`),
-      h("table", {}, h("tr", {}, h("th", {}, "Carte"), h("th", {}, "Rareté"), h("th", { className: "num" }, "Ex."), h("th", { className: "num" }, "Prix")),
-        ...reply.items.map((i) => h("tr", {}, h("td", {}, i.title), h("td", {}, i.rarity + (i.shiny ? " ✦" : "")),
-          h("td", { className: "num" }, fr(i.copies)), h("td", { className: "num" }, label(i))))),
-      h("p", { className: "muted" }, "« ? » : prix pas encore lu (onglet Collection pour lire les prix manquants)."));
+      h("table", {}, h("tr", {}, h("th", {}, "Carte"), h("th", {}, "Rareté"), h("th", { className: "num" }, "Ex."), h("th", { className: "num" }, "Prix"), mine ? h("th", {}) : null),
+        ...reply.items.map((i) => {
+          const cell = h("td", {});
+          const row = h("tr", {},
+            h("td", {}, i.title, i.variants.length > 1 || i.copies > 1 ? h("div", { className: "muted" }, variants(i)) : null),
+            h("td", {}, i.rarity + (i.shiny ? " ✦" : "") + (i.starred ? " 🔒" : "")),
+            h("td", { className: "num" }, fr(i.copies)), h("td", { className: "num" }, label(i)), mine ? cell : null);
+          if (mine && i.sellCopy) cell.append(h("button", { className: "act small", title: "Mettre un exemplaire en vente", on: { click: () => sellForm(i, row, cell) } }, "Vendre"));
+          return row;
+        })),
+      h("p", { className: "muted" }, "« ? » : prix pas encore lu (onglet Collection pour lire les prix manquants). 🔒 : favori, que le site ne laisse ni vendre ni échanger." +
+        (mine ? " « Vendre » : pour une carte en plusieurs exemplaires, un exemplaire de cette rareté qui n'est ni favori ni shiny." : "")));
   };
   return [
     h("label", {}, "Dans ", source), friendBox,
-    h("div", {}, check("duplicates", "Doublons"), check("noImage", "Sans image"), check("gif", "GIF")),
-    h("div", {}, ...chips),
+    h("div", {}, check("duplicates", "Doublons"), check("noImage", "Sans image"), check("gif", "GIF"), check("wished", "Dans ma liste de souhaits")),
+    h("div", {}, ...rarityChips("rarities")),
     text,
     h("div", {}, price, range),
-    h("label", {}, "Étiquette ", tag),
+    tagBox,
     h("label", {}, "Trier par ", sort),
     h("button", { className: "act", on: { click: run } }, "Filtrer"),
     results,
@@ -340,9 +446,9 @@ let openFamily = null;
 const loadFamilies = async () => (await chrome.storage.local.get(FAMILIES_KEY))[FAMILIES_KEY] || [];
 const saveFamilies = (list) => chrome.storage.local.set({ [FAMILIES_KEY]: list });
 
-async function familiesView() {
+async function familiesView(first) {
   const families = await loadFamilies();
-  if (openFamily && families.some((f) => f.id === openFamily)) return familyView(families, families.find((f) => f.id === openFamily));
+  if (openFamily && families.some((f) => f.id === openFamily)) return familyView(families, families.find((f) => f.id === openFamily), first);
   const name = h("input", { type: "text", placeholder: "nom de la famille", className: "wide" });
   const code = h("input", { type: "text", placeholder: "code WME-F1.… d'une famille partagée", className: "wide" });
   const status = h("p", { className: "muted" });
@@ -374,7 +480,48 @@ async function familiesView() {
   ];
 }
 
-async function familyView(families, family) {
+// Catégories Wikipédia (#20) : la recherche du site ne regarde que le titre (« Aveyron » ne trouve pas les communes
+// de l'Aveyron). Les articles d'une catégorie, et de ses sous-catégories, donnent ces cartes : chaque article de
+// Wikipédia en français est une carte. Seul le nom cherché part vers l'API publique de Wikipédia, sans cookie.
+const WIKI_API = "https://fr.wikipedia.org/w/api.php";
+const wikiGet = async (params) => {
+  const response = await fetch(`${WIKI_API}?${new URLSearchParams({ format: "json", formatversion: "2", origin: "*", ...params })}`, { credentials: "omit" });
+  if (!response.ok) throw new Error(`Wikipédia : HTTP ${response.status}`);
+  return response.json();
+};
+
+async function findCategories(q) {
+  const data = await wikiGet({ action: "query", generator: "search", gsrsearch: q, gsrnamespace: "14", gsrlimit: "15", prop: "categoryinfo" });
+  return ((data.query && data.query.pages) || []).sort((a, b) => a.index - b.index)
+    .map((p) => ({ title: p.title, pages: (p.categoryinfo && p.categoryinfo.pages) || 0, subcats: (p.categoryinfo && p.categoryinfo.subcats) || 0 }));
+}
+
+// Articles d'une catégorie jusqu'à `depth` niveaux de sous-catégories, 5000 au plus. onProgress(articles, catégories).
+async function categoryArticles(category, depth, onProgress) {
+  const titles = new Set();
+  const seenCats = new Set([category]);
+  let level = [category];
+  for (let d = 0; d <= depth && level.length && titles.size < 5000; d++) {
+    const next = [];
+    for (const cat of level) {
+      let cont = {};
+      do {
+        const data = await wikiGet({ action: "query", list: "categorymembers", cmtitle: cat, cmtype: d < depth ? "page|subcat" : "page", cmnamespace: d < depth ? "0|14" : "0", cmlimit: "500", ...cont });
+        for (const m of (data.query && data.query.categorymembers) || []) {
+          if (m.ns === 0) titles.add(m.title);
+          else if (m.ns === 14 && !seenCats.has(m.title) && seenCats.size < 300) { seenCats.add(m.title); next.push(m.title); }
+        }
+        cont = data.continue || null;
+        onProgress(titles.size, seenCats.size);
+      } while (cont && titles.size < 5000);
+      if (titles.size >= 5000) break;
+    }
+    level = next;
+  }
+  return [...titles].slice(0, 5000);
+}
+
+async function familyView(families, family, first) {
   const update = async (change) => {
     const list = (await loadFamilies()).map((f) => (f.id === family.id ? change(f) : f));
     await saveFamilies(list);
@@ -385,20 +532,70 @@ async function familyView(families, family) {
   const info = (reply.ok && reply.info) || {};
   const p = WME.familyProgress(family.cards, info);
   const unread = family.cards.filter((c) => !(info[c.id] && info[c.id].read)).map((c) => c.id);
+  // À chaque ouverture de la famille, ses prix manquants partent en file (après les cartes affichées sur le site) : ils
+  // arrivent au fil des minutes, et vont aussi au serveur partagé.
+  if (first && unread.length) ask("panel", { action: "loadCardPrices", ids: unread });
 
-  const search = h("input", { type: "search", placeholder: "chercher dans le catalogue du site", className: "wide" });
+  // Recherche par titre dans le catalogue du site, 50 cartes par page.
+  const search = h("input", { type: "search", placeholder: "mot du titre (catalogue du site)", className: "wide" });
   const found = h("div", {});
-  const runSearch = async () => {
-    found.replaceChildren(h("p", { className: "muted" }, "Recherche…"));
-    const r = await ask("panel", { action: "catalogSearch", q: search.value });
+  let searchPage = 1;
+  let searchCards = [];
+  const runSearch = async (more) => {
+    searchPage = more ? searchPage + 1 : 1;
+    if (!more) { searchCards = []; found.replaceChildren(h("p", { className: "muted" }, "Recherche…")); }
+    const r = await ask("panel", { action: "catalogSearch", q: search.value, page: searchPage });
     if (!r.ok) return found.replaceChildren(...error(r));
+    searchCards = [...searchCards, ...r.cards.filter((c) => !searchCards.some((o) => o.id === c.id))];
     found.replaceChildren(
-      r.cards.length > 1 && h("button", { className: "act small", on: { click: () => addCards(r.cards) } }, `Tout ajouter (${r.cards.length})`),
-      h("table", {}, ...r.cards.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, c.rarity),
+      h("p", { className: "muted" }, `${searchCards.length} carte(s)`),
+      searchCards.length > 1 && h("button", { className: "act small", on: { click: () => addCards(searchCards) } }, `Tout ajouter (${searchCards.length})`),
+      r.more && h("button", { className: "act small", on: { click: () => runSearch(true) } }, "Plus de résultats"),
+      h("table", {}, ...searchCards.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, c.rarity),
         h("td", {}, family.cards.some((o) => o.id === c.id) ? "déjà" : h("button", { className: "act small", on: { click: () => addCards([c]) } }, "+"))))));
   };
-  search.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
-  const tag = h("select", {}, h("option", { value: "" }, "Ajouter les cartes d'une étiquette…"));
+  search.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(false); });
+
+  // Catégorie Wikipédia : chercher la catégorie, choisir la profondeur, compter, puis tout ajouter.
+  const catQuery = h("input", { type: "search", placeholder: "catégorie Wikipédia (ex. Aveyron)", className: "wide" });
+  const catBox = h("div", {});
+  const runCategories = async () => {
+    if (catQuery.value.trim().length < 2) return;
+    catBox.replaceChildren(h("p", { className: "muted" }, "Recherche des catégories…"));
+    let cats;
+    try {
+      cats = await findCategories(catQuery.value.trim());
+    } catch (e) {
+      return catBox.replaceChildren(h("p", { className: "error" }, e.message));
+    }
+    if (!cats.length) return catBox.replaceChildren(h("p", { className: "muted" }, "Aucune catégorie de ce nom."));
+    const pick = h("select", { className: "wide" }, ...cats.map((c) => h("option", { value: c.title }, `${c.title.replace(/^Catégorie:/, "")} (${fr(c.pages)} articles, ${fr(c.subcats)} sous-catégories)`)));
+    const depth = h("select", {}, ...[[0, "cette catégorie seule"], [1, "et ses sous-catégories"], [2, "sur 2 niveaux"], [3, "sur 3 niveaux"]].map(([v, l]) => h("option", { value: v, selected: v === 1 }, l)));
+    const status = h("p", { className: "muted" });
+    const result = h("div", {});
+    const count = h("button", { className: "act small", on: { click: async () => {
+      count.disabled = true;
+      result.replaceChildren();
+      try {
+        const titles = await categoryArticles(pick.value, Number(depth.value), (n, cats2) => { status.textContent = `${fr(n)} article(s) dans ${fr(cats2)} catégorie(s)…`; });
+        status.textContent = `${fr(titles.length)} article(s)${titles.length >= 5000 ? " (5000 au plus)" : ""} : recherche des cartes…`;
+        const r = await ask("panel", { action: "cardsByTitles", titles });
+        if (!r.ok) throw new Error(r.error);
+        const fresh = r.cards.filter((c) => !family.cards.some((o) => o.id === c.id));
+        status.textContent = `${fr(titles.length)} article(s), ${fr(r.cards.length)} carte(s) du jeu, dont ${fr(fresh.length)} pas encore dans la famille.`;
+        if (fresh.length) result.replaceChildren(h("button", { className: "act", on: { click: () => addCards(fresh) } }, `Ajouter ${fr(fresh.length)} carte(s)`),
+          h("p", { className: "muted" }, fresh.slice(0, 30).map((c) => c.title).join(" · ") + (fresh.length > 30 ? " …" : "")));
+      } catch (e) {
+        status.textContent = e.message;
+      }
+      count.disabled = false;
+    } } }, "Compter les cartes");
+    catBox.replaceChildren(pick, h("div", {}, depth, count), status, result,
+      h("p", { className: "muted" }, "Les sous-catégories peuvent s'éloigner du sujet (personnalités, histoire…) : regarde le nombre avant d'ajouter."));
+  };
+  catQuery.addEventListener("keydown", (e) => { if (e.key === "Enter") runCategories(); });
+
+  const tag = h("select", {}, h("option", { value: "" }, "Ajouter les cartes d'une de mes étiquettes…"));
   ask("panel", { action: "tags" }).then((r) => {
     if (r.ok) tag.append(...Object.entries(r.tags || {}).sort(([, a], [, b]) => a.localeCompare(b)).map(([id, n]) => h("option", { value: id }, n)));
   });
@@ -412,16 +609,17 @@ async function familyView(families, family) {
   return [
     h("p", {}, h("a", { href: "#", on: { click: (e) => { e.preventDefault(); openFamily = null; draw(true); } } }, "← Familles")),
     h("p", { className: "big" }, `${family.name} · ${p.owned} / ${p.total}`),
+    h("div", { className: "bar" }, h("span", { style: `width: ${pct(p.owned, p.total).toFixed(1)}%` })),
     h("p", { className: "muted" }, p.missing.length ? `Il en manque ${p.missing.length} : ≈ ${fr(p.cost)} WB au prix le plus bas connu` +
-      (p.unpriced ? ` (${p.unpriced} sans prix)` : "") : "Famille complète !"),
-    unread.length > 0 && h("button", { className: "act small", on: { click: async (e) => { await ask("panel", { action: "loadCardPrices", ids: unread }); e.target.textContent = `${unread.length} prix en file`; } } },
-      `Lire les prix manquants (${unread.length})`),
+      (p.unpriced ? ` (${p.unpriced} sans prix${unread.length ? `, ${unread.length} en cours de lecture` : ""})` : "") : "Famille complète !"),
     h("h3", {}, "Ajouter des cartes"),
-    search, h("button", { className: "act small", on: { click: runSearch } }, "Chercher"), found, tag,
+    catQuery, h("button", { className: "act small", on: { click: runCategories } }, "Chercher la catégorie"), catBox,
+    search, h("button", { className: "act small", on: { click: () => runSearch(false) } }, "Chercher"), found, tag,
     h("h3", {}, "Cartes manquantes"),
-    p.missing.length ? h("table", {}, ...p.missing.map((c) => h("tr", {}, h("td", {}, c.title),
+    p.missing.length ? h("table", {}, ...p.missing.slice(0, 500).map((c) => h("tr", {}, h("td", {}, c.title),
       h("td", { className: "num" }, c.cheapest ? `${c.cheapest.rarity} ${wb(c.cheapest.avg)}` : "?"),
       h("td", {}, h("button", { className: "act small", title: "Retirer de la famille", on: { click: () => update((f) => ({ ...f, cards: f.cards.filter((o) => o.id !== c.id) })) } }, "×"))))) : null,
+    p.missing.length > 500 ? h("p", { className: "muted" }, `… et ${p.missing.length - 500} autres.`) : null,
     h("h3", {}, `Possédées (${p.owned})`),
     h("p", { className: "muted" }, family.cards.filter((c) => info[c.id] && info[c.id].owned).map((c) => c.title).join(" · ") || "aucune"),
     h("h3", {}, "Famille"),
@@ -429,7 +627,7 @@ async function familyView(families, family) {
       await navigator.clipboard.writeText(WME.familyCode(family)).then(() => { shareStatus.textContent = " code copié"; }, () => { shareStatus.textContent = ` ${WME.familyCode(family)}`; });
     } } }, "Partager (code)"), shareStatus, " ",
     h("button", { className: "act small", on: { click: async () => {
-      if (!confirm(`Supprimer la famille « ${family.name} » ?`)) return;
+      if (!await dialog({ title: "Supprimer la famille", lines: [`« ${family.name} » et sa liste de ${family.cards.length} carte(s).`], ok: "Supprimer" })) return;
       await saveFamilies(families.filter((f) => f.id !== family.id));
       openFamily = null;
       draw(true);
@@ -445,13 +643,39 @@ async function packsView() {
     lastPack(state.pulls && state.pulls.last),
     todayRates(state.pulls && state.pulls.today),
     pullsRecap(state.pulls) || h("p", { className: "muted" }, "Aucun paquet ouvert noté pour l'instant."),
-    h("h3", {}, "Automatisation par clic"),
+    h("h3", {}, "Automatisation par clic (désactivée par défaut)"),
     h("p", { className: "muted" }, "Elle ne change jamais de page sous tes yeux : elle attend 5 min sans clic, frappe ni défilement. Les " +
-      "règles du site interdisent les scripts qui jouent à ta place : à utiliser en connaissance de cause."),
-    toggle(state.autoClickPack, "autoClickPack", "Ouverture auto des paquets (/pulls)"),
-    toggle(state.autoUnblockMarket, "autoUnblockMarket", "Tentative de déblocage du marché (/collection) : met une vraie enchère"),
+      "règles de Wiki Masters l'interdisent : un avertissement est demandé avant de l'activer."),
+    riskyToggle(state.autoClickPack, "autoClickPack", "Ouverture auto des paquets (/pulls)"),
+    riskyToggle(state.autoUnblockMarket, "autoUnblockMarket", "Tentative de déblocage du marché (/collection) : met une vraie enchère"),
     clickStatus(state),
   ];
+}
+
+// Automatisation : avant de l'activer, l'avertissement à accepter (règles du site, responsabilité du joueur).
+function riskyToggle(checked, type, label) {
+  const box = h("input", { type: "checkbox", checked: Boolean(checked), on: { change: async (e) => {
+    if (e.target.checked && !await automationWarning()) { box.checked = false; return; }
+    await ask(type, { on: box.checked });
+    draw(false);
+  } } });
+  return h("label", {}, box, ` ${label}`);
+}
+
+function automationWarning() {
+  return dialog({
+    title: "Avant d'activer l'automatisation",
+    lines: [
+      "WikiMastered est une extension non officielle, faite par un joueur. Elle n'est ni développée ni approuvée par Wiki Masters.",
+      "Les règles de Wiki Masters interdisent les bots, scripts et outils qui jouent ou ouvrent des paquets à ta place. Ses conditions " +
+        "d'utilisation prévoient la suspension ou le bannissement d'un compte qui utilise de l'automatisation, jusqu'à la perte définitive " +
+        "du compte et de tout ce qu'il contient.",
+    ],
+    strong: "En l'activant, tu choisis de l'utiliser en connaissance de cause. Tu es seul responsable de son usage et de ses conséquences " +
+      "pour ton compte, y compris une sanction ou un bannissement ; le développeur de l'extension ne peut pas en être tenu responsable.",
+    check: "J'ai lu cet avertissement et j'active l'automatisation sous ma seule responsabilité.",
+    ok: "Activer", cancel: "Laisser désactivé",
+  });
 }
 
 // Le dernier paquet (#23) : chaque carte, nouvelle ou doublon, son prix, et la valeur du paquet.
@@ -469,34 +693,36 @@ function lastPack(last) {
 // Taux de tirage du jour (#24), remis à zéro à minuit (heure du navigateur).
 function todayRates(today) {
   if (!today || !today.packs) return null;
-  const order = (r) => (WME.rank(r) < 0 ? -1 : WME.rank(r));
   return h("div", { className: "box" },
     h("h3", {}, `Aujourd'hui · ${today.packs} paquet(s) · ${today.cards} carte(s)`),
-    h("p", { className: "muted" }, Object.entries(today.byRarity).sort(([a], [b]) => order(b) - order(a))
-      .map(([r, n]) => `${r} ${n} (${(n / today.cards * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %)`).join(" · ")));
+    rarityTable(today.byRarity, today.cards));
 }
 
-function toggle(checked, type, label) {
-  return h("label", {}, h("input", { type: "checkbox", checked: Boolean(checked), on: { change: async (e) => { await ask(type, { on: e.target.checked }); draw(false); } } }), ` ${label}`);
+// Raretés tirées : rareté, barre, nombre de cartes, part.
+function rarityTable(byRarity, total) {
+  const order = (r) => (WME.rank(r) < 0 ? -1 : WME.rank(r));
+  const rows = Object.entries(byRarity).sort(([a], [b]) => order(b) - order(a));
+  const most = Math.max(...rows.map(([, n]) => n), 1);
+  return h("table", { className: "rates" }, ...rows.map(([r, n]) => h("tr", {}, h("td", {}, r), h("td", { className: "bar-cell" }, bar(n, most)),
+    h("td", { className: "num" }, fr(n)), h("td", { className: "num" }, pctText(n, total)))));
 }
 
 // Récap des paquets ouverts, à la main et en auto (pullRecap, src/lib.js).
 function pullsRecap(recap) {
   if (!recap || !(recap.packs || recap.earlier)) return null;
   const total = recap.cards + recap.earlier;
-  const percent = (n) => (n / total * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
-  const order = (r) => (WME.rank(r) < 0 ? -1 : WME.rank(r));
   return h("div", { className: "box" },
     h("h3", {}, `Paquets ouverts · ${fr(total)} carte(s)`),
-    h("table", {}, ...Object.entries(recap.byRarity).sort(([a], [b]) => order(b) - order(a))
-      .map(([r, n]) => h("tr", {}, h("td", {}, r), h("td", { className: "num" }, fr(n)), h("td", { className: "num" }, `${percent(n)} %`)))),
+    rarityTable(recap.byRarity, total),
     recap.shiny > 0 && h("p", { className: "muted" }, `✦ ${recap.shiny} shiny`),
     recap.earlier > 0 && h("p", { className: "muted" }, `Dont ${fr(recap.earlier)} carte(s) d'avant, reprises de l'extension « Prix moyen collection » (sans prix ni détail).`),
     recap.packs > 0 && h("p", {}, `Depuis le ${dateTime(recap.since)} : ${recap.packs} paquet(s) · ${recap.cards} carte(s) · ≈ ${wb(recap.value)} WB`),
     recap.packs > 0 && h("p", { className: "muted" }, `${recap.auto} en auto · ${recap.manual} à la main`),
     recap.missing > 0 && h("p", { className: "muted" }, `${recap.missing} carte(s) sans prix (shiny, aucune vente ou pas encore lu)`),
     recap.best.length > 0 && h("p", { className: "muted" }, "Meilleurs tirages : " + recap.best.map((c) => `${c.title} ${c.rarity} ≈ ${wb(c.price)}`).join(" · ")),
-    h("button", { className: "act", on: { click: async () => { if (confirm("Remettre le récap des paquets à zéro ?")) { await ask("clearPulls"); draw(false); } } } }, "Remettre le récap à zéro"));
+    h("button", { className: "act", on: { click: async () => {
+      if (await dialog({ title: "Remettre le récap à zéro", lines: ["Tous les paquets notés et les compteurs repris seront oubliés."], ok: "Remettre à zéro" })) { await ask("clearPulls"); draw(false); }
+    } } }, "Remettre le récap à zéro"));
 }
 
 function clickStatus(state) {
@@ -504,6 +730,31 @@ function clickStatus(state) {
   if (!info || !(state.autoClickPack || state.autoUnblockMarket)) return null;
   const notes = [info.challengeVisible && "vérification affichée", info.userQuiet ? "joueur inactif" : "joueur actif : pas de changement de page"].filter(Boolean);
   return h("p", { className: "muted" }, `État : ${info.status} · ${notes.join(" · ")}`);
+}
+
+// ------------------------------------------------------------------ Enchères (#16) : bonnes affaires et enchères
+// surcotées, sur les pages du marché ouvertes. Option désactivée par défaut.
+async function auctionsView() {
+  const state = await ask("state");
+  if (!state || state.ok === false) return error(state || {});
+  const left = (at) => {
+    const min = Math.max(0, Math.round((at - Date.now()) / 60e3));
+    return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}`;
+  };
+  const list = state.auctionDeals || [];
+  return [
+    h("label", {}, h("input", { type: "checkbox", checked: Boolean(state.deals), on: { change: (e) => ask("deals", { on: e.target.checked }) } }),
+      " Marquer les enchères sur le marché : « −34 % » bonne affaire, « +50 % » surcotée"),
+    h("p", { className: "muted" }, "Bonne affaire : l'enchère finit dans moins de 15 min et la mise minimum est au moins 25 % sous le prix moyen " +
+      "de la semaine. Surcotée : la mise minimum dépasse ce prix de 50 % ou plus. Seulement avec un prix fiable, jamais pour un shiny."),
+    h("h3", {}, "Sur les pages du marché ouvertes"),
+    list.length ? h("table", {},
+      h("tr", {}, h("th", {}, "Carte"), h("th", { className: "num" }, "Mise min."), h("th", { className: "num" }, "Prix"), h("th", { className: "num" }, "Écart"), h("th", { className: "num" }, "Fin")),
+      ...list.map((d) => h("tr", {}, h("td", {}, `${d.title} `, h("span", { className: "muted" }, d.rarity)), h("td", { className: "num" }, wb(d.bid)),
+        h("td", { className: "num" }, wb(d.price)), h("td", { className: `num ${d.kind === "deal" ? "good" : "error"}` }, `${d.pct > 0 ? "+" : "−"}${Math.abs(d.pct)} %`),
+        h("td", { className: "num" }, left(d.endAt)))))
+      : h("p", { className: "muted" }, "Aucune pour l'instant. Ouvre le marché du site (tri « Fin proche » pour les bonnes affaires) : les enchères affichées dont le prix est connu apparaissent ici."),
+  ];
 }
 
 // ------------------------------------------------------------------ Réglages (construits une fois : pas de
@@ -516,29 +767,25 @@ async function settingsView() {
     const reply = await ask("minSales", { value: minSales.value });
     if (reply && reply.minSales) minSales.value = reply.minSales;
   });
-  const order = h("select", {}, ...[["", "Rareté (celui du site)"], ["Nom", "Nom"], ["Favoris", "Favoris"], ["Date d'ajout", "Date d'ajout"]]
-    .map(([value, label]) => h("option", { value, selected: (state.collectionOrder || "") === value }, label)));
-  order.addEventListener("change", () => ask("collectionOrder", { value: order.value }));
   return [
     h("h3", {}, "Sur les cartes"),
     h("label", {}, h("input", { type: "checkbox", checked: state.badges, on: { change: (e) => ask("badges", { on: e.target.checked }) } }), " Badges de prix"),
-    h("label", {}, h("input", { type: "checkbox", checked: state.ownedMarks !== false, on: { change: (e) => ask("ownedMarks", { on: e.target.checked }) } }),
-      " « ✓ » sur les cartes que j'ai déjà, point bleu sur les autres"),
     h("label", {}, h("input", { type: "checkbox", checked: Boolean(state.images), on: { change: (e) => {
       if (!e.target.checked) return ask("images", { on: false });
       const box = e.target;
       requestAccess([]).then((granted) => (granted ? ask("images", { on: true }) : (box.checked = false)), () => { box.checked = false; });
     } } }),
       " Images Wikipédia pour les cartes sans image (le titre de ces cartes est envoyé à Wikipédia, sans rien d'autre)"),
-    h("label", {}, h("input", { type: "checkbox", checked: state.deals !== false, on: { change: (e) => ask("deals", { on: e.target.checked }) } }),
-      " Marché : « −34 % » bonne affaire (fin dans moins de 15 min, 25 % sous la cote), « +50 % » surcoté"),
     h("label", {}, "Prix fiable à partir de ", minSales, " vente(s) dans la semaine (sinon « ≈ »)"),
-    h("h3", {}, "Pages du site"),
-    h("label", {}, "Ordre de ma collection : ", order),
     h("h3", {}, "Prix partagés"),
     await sharedSettings(),
     h("h3", {}, "Cache des prix"),
-    h("button", { className: "act", on: { click: async (e) => { if (confirm("Oublier tous les prix et les relire sur le site ?")) { await ask("reread"); e.target.textContent = "Prix oubliés : relecture en cours"; } } } },
+    h("button", { className: "act", on: { click: async (e) => {
+      if (await dialog({ title: "Relire tous les prix", lines: ["Les prix gardés sont oubliés et relus sur le site, dans le quota habituel : il faut du temps."], ok: "Relire" })) {
+        await ask("reread");
+        e.target.textContent = "Prix oubliés : relecture en cours";
+      }
+    } } },
       "Relire tous les prix"),
     h("h3", {}, "Données gardées par l'extension"),
     await dataSection(),
@@ -568,7 +815,7 @@ async function dataSection() {
   const status = h("p", { className: "muted" });
   const rows = DATA.map((d) => h("tr", {}, h("td", {}, d.label), h("td", { className: "num" }, kb(size(d.key))),
     h("td", {}, d.clear && all[d.key] !== undefined ? h("button", { className: "act small", on: { click: async () => {
-      if (!confirm(`Vider « ${d.label} » ?`)) return;
+      if (!await dialog({ title: "Vider", lines: [`« ${d.label} »`], ok: "Vider" })) return;
       await chrome.storage.local.remove(d.key);
       if (d.key === "prices-v2") await chrome.storage.local.remove("wmSharedSync");
       status.textContent = "Vidé. Recharge la page du site pour qu'elle reparte de zéro.";
@@ -593,7 +840,7 @@ async function dataSection() {
       const allowed = new Set(DATA.filter((d) => d.backup).map((d) => d.key));
       const data = Object.fromEntries(Object.entries((parsed && parsed.data) || {}).filter(([k]) => allowed.has(k)));
       if (!Object.keys(data).length) throw new Error("aucune donnée WikiMastered dans ce fichier");
-      if (!confirm(`Remplacer ${Object.keys(data).length} donnée(s) par celles de la sauvegarde du ${String(parsed.at || "?").slice(0, 10)} ?`)) return;
+      if (!await dialog({ title: "Restaurer", lines: [`Remplacer ${Object.keys(data).length} donnée(s) par celles de la sauvegarde du ${String(parsed.at || "?").slice(0, 10)} ?`], ok: "Restaurer" })) return;
       await chrome.storage.local.set(data);
       status.textContent = "Sauvegarde restaurée. Recharge la page du site pour qu'elle la prenne en compte.";
       draw(true);
@@ -605,8 +852,9 @@ async function dataSection() {
     h("table", {}, ...rows, h("tr", {}, h("td", {}, h("b", {}, "Total")), h("td", { className: "num" }, kb(total)), h("td", {}))),
     h("button", { className: "act", on: { click: exportData } }, "Sauvegarder (JSON)"), " ",
     h("button", { className: "act", on: { click: () => picker.click() } }, "Restaurer…"), picker,
-    h("p", { className: "muted" }, "La sauvegarde garde ce qui ne se relit pas sur le site : réglages, récap des paquets, courbe de valeur, " +
-      "relevé des refus. Le cache des prix et la collection se relisent d'eux-mêmes."),
+    h("p", { className: "muted" }, "À quoi sert la sauvegarde : changer de navigateur ou d'ordinateur, ou réinstaller l'extension, sans " +
+      "perdre ce que le site ne garde pas : tes familles, ton récap des paquets, ta courbe de valeur et tes réglages. Les prix et la " +
+      "collection se relisent d'eux-mêmes."),
     status);
 }
 

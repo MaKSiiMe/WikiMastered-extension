@@ -570,22 +570,34 @@ const WME = (() => {
    * Filtres de la collection (#19). rows : [[exemplaire, carte, rareté, nombre, favori, shiny, image]] (image : 0 sans
    * image ou masquée, 1 image, 2 GIF, undefined inconnu) ; priceInfo(carte, rareté) -> { state: "price" | "never" |
    * "unknown", avg?, sure? }. criteria : { duplicates, noImage, gif, rarities: [], text, price: "all" | "never" |
-   * "range", min, max, sort: "value-desc" | "value-asc" | "rarity", tag: "" | "any" | "none" | id d'étiquette (#63),
-   * notMine (cartes que je n'ai pas, pour la collection d'un ami : #51) }. Une ligne par carte et par rareté ; une
-   * ligne passe le filtre d'étiquette si au moins un de ses exemplaires y répond. tagsOf(exemplaire) -> [ids],
-   * isMine(carte) -> true | false | undefined.
-   * -> { count, items: [{ id, title, rarity, copies, shiny, image, price, sure, state }] } (300 premières)
+   * "range", min, max, sort: "value-desc" | "value-asc" | "rarity", tags: [ids d'étiquettes, toutes exigées] (#63),
+   * untagged (sans aucune étiquette), notMine (cartes que je n'ai pas, collection d'un ami : #51), wished (dans ma liste
+   * de souhaits) }. Une ligne par carte et par rareté ; une ligne passe le filtre d'étiquettes si ses exemplaires, à eux
+   * tous, portent toutes les étiquettes demandées. tagsOf(exemplaire) -> [ids], isMine(carte) -> true | false |
+   * undefined, isWished(carte) -> bool.
+   * -> { count, items: [{ id, title, rarity, copies, shiny, starred, image, price, sure, state, variants, sellCopy }] }
+   * (300 premières). variants : tous les exemplaires de la carte, par rareté ([{ rarity, copies, starred, shiny }], du
+   * plus rare au plus commun) ; sellCopy : un exemplaire de cette ligne qu'on peut mettre en vente (ni favori ni
+   * shiny), seulement quand la carte a au moins deux exemplaires, ou null.
    */
-  function filterCollection(rows, titles, priceInfo, criteria = {}, tagsOf = () => [], isMine = () => undefined) {
+  function filterCollection(rows, titles, priceInfo, criteria = {}, tagsOf = () => [], isMine = () => undefined, isWished = () => false) {
     const groups = new Map();
     const perCard = new Map();
-    for (const [copy, id, rarity, count, , shiny, image] of rows) {
+    const variants = new Map();
+    for (const [copy, id, rarity, count, starred, shiny, image] of rows) {
       const n = Math.max(1, Number(count) || 1);
       perCard.set(id, (perCard.get(id) || 0) + n);
+      const vkey = `${rarity}|${shiny ? 1 : 0}`;
+      const byCard = variants.get(id) || variants.set(id, new Map()).get(id);
+      const v = byCard.get(vkey) || byCard.set(vkey, { rarity, copies: 0, starred: 0, shiny: Boolean(shiny) }).get(vkey);
+      v.copies += n;
+      if (starred) v.starred += n;
       const key = `${id}|${rarity}`;
-      const g = groups.get(key) || groups.set(key, { id, title: (titles && titles[id]) || id, rarity, copies: 0, shiny: false, image, tags: new Set(), untagged: false }).get(key);
+      const g = groups.get(key) || groups.set(key, { id, title: (titles && titles[id]) || id, rarity, copies: 0, shiny: false, starred: 0, image, tags: new Set(), untagged: false, sellCopy: null }).get(key);
       g.copies += n;
       if (shiny) g.shiny = true;
+      if (starred) g.starred += n;
+      else if (!shiny && !g.sellCopy) g.sellCopy = String(copy);
       const tags = tagsOf(copy) || [];
       if (!tags.length) g.untagged = true;
       for (const t of tags) g.tags.add(String(t));
@@ -593,6 +605,7 @@ const WME = (() => {
     const words = String(criteria.text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/\s+/).filter(Boolean);
     const plain = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const rarities = new Set(criteria.rarities || []);
+    const wantedTags = (Array.isArray(criteria.tags) ? criteria.tags : []).map(String);
     const min = Number.isFinite(Number(criteria.min)) && criteria.min !== "" ? Number(criteria.min) : -Infinity;
     const max = Number.isFinite(Number(criteria.max)) && criteria.max !== "" ? Number(criteria.max) : Infinity;
     const out = [];
@@ -602,15 +615,17 @@ const WME = (() => {
       if (criteria.gif && g.image !== 2) continue;
       if (rarities.size && !rarities.has(g.rarity)) continue;
       if (words.length && !words.every((w) => plain(g.title).includes(w))) continue;
-      if (criteria.tag === "any" && !g.tags.size) continue;
-      if (criteria.tag === "none" && !g.untagged) continue;
-      if (criteria.tag && !["any", "none"].includes(criteria.tag) && !g.tags.has(String(criteria.tag))) continue;
+      if (wantedTags.some((t) => !g.tags.has(t))) continue;
+      if (criteria.untagged && g.tags.size) continue;
       if (criteria.notMine && isMine(g.id) !== false) continue;
+      if (criteria.wished && !isWished(g.id)) continue;
       const info = g.shiny ? { state: "unknown" } : priceInfo(g.id, g.rarity) || { state: "unknown" };
       if (criteria.price === "never" && info.state !== "never") continue;
       if (criteria.price === "range" && !(info.state === "price" && info.avg >= Math.min(min, max) && info.avg <= Math.max(min, max))) continue;
-      const { tags, untagged, ...rest } = g;
-      out.push({ ...rest, state: info.state, price: info.state === "price" ? info.avg : null, sure: Boolean(info.sure) });
+      const { tags, untagged, sellCopy, ...rest } = g;
+      const list = [...variants.get(g.id).values()].sort((a, b) => rank(b.rarity) - rank(a.rarity) || Number(a.shiny) - Number(b.shiny));
+      out.push({ ...rest, state: info.state, price: info.state === "price" ? info.avg : null, sure: Boolean(info.sure), variants: list,
+        sellCopy: perCard.get(g.id) >= 2 ? sellCopy : null });
     }
     const value = (x) => (x.price === null ? null : x.price);
     if (criteria.sort === "rarity") out.sort((a, b) => rank(b.rarity) - rank(a.rarity) || a.title.localeCompare(b.title));
@@ -650,6 +665,7 @@ const WME = (() => {
     const list = data && Array.isArray(data.auctions) ? data.auctions : [];
     return list.filter((a) => a && a.card && a.card.id).map((a) => ({
       cardId: String(a.card.id),
+      title: String(a.card.wikipedia_title || a.card.title || a.card.id),
       rarity: String(a.snapshot_rarity || a.card.rarity || "").toUpperCase(),
       shiny: Boolean(a.is_shiny),
       current: Number(a.current_bid) || 0,
@@ -676,38 +692,48 @@ const WME = (() => {
     return null;
   }
 
-  /** Médiane et quartiles (interpolation linéaire) d'une liste de prix (#15). -> { median, q1, q3, n } ou null. */
-  function quartiles(values) {
-    const v = (Array.isArray(values) ? values : []).map(Number).filter((n) => Number.isFinite(n) && n >= 0).sort((a, b) => a - b);
-    if (!v.length) return null;
-    const at = (p) => {
-      const i = (v.length - 1) * p;
-      const lo = Math.floor(i);
-      return v[lo] + (v[Math.min(lo + 1, v.length - 1)] - v[lo]) * (i - lo);
-    };
-    return { median: at(0.5), q1: at(0.25), q3: at(0.75), n: v.length };
-  }
-
   /**
    * Collection d'un autre joueur (#51), une page de /api/profile/{pseudo}/collection : { collection: [{ id, card_id?,
-   * count, is_shiny, snapshot_rarity, owned_by_viewer, card }] }. -> { rows (même forme que la mienne), titles, mine:
-   * { carte: true | false } (owned_by_viewer) }
+   * count, is_shiny, snapshot_rarity, owned_by_viewer, tags?, card }], tagOptions? }. -> { rows (même forme que la
+   * mienne), titles, mine: { carte: true | false } (owned_by_viewer), tags: { exemplaire: [ids] }, tagNames: { id: nom },
+   * tagsSeen (le site a donné des étiquettes : tagOptions ou tags sur un exemplaire) }. Une étiquette d'exemplaire est un
+   * objet { id, name } ou un identifiant.
    */
   function friendRows(data) {
     const rows = [];
     const titles = {};
     const mine = {};
+    const tags = {};
+    const tagNames = {};
+    let tagsSeen = false;
+    for (const t of (data && Array.isArray(data.tagOptions) ? data.tagOptions : [])) {
+      tagsSeen = true;
+      if (t && t.id) tagNames[String(t.id)] = String(t.name || t.id);
+    }
     for (const e of (data && Array.isArray(data.collection) ? data.collection : [])) {
       const c = e && e.card;
       if (!c || !c.id) continue;
       const id = String(c.id);
       const rarity = String(e.snapshot_rarity || c.rarity || "").toUpperCase();
       const image = c.hide_image || !c.image_url ? 0 : /\.gif(?:[?#]|$)/i.test(String(c.image_url)) ? 2 : 1;
-      rows.push([String(e.id || `${id}|${rarity}`), id, rarity, Math.max(1, Number(e.count) || 1), e.starred ? 1 : 0, e.is_shiny ? 1 : 0, image]);
+      const copy = String(e.id || `${id}|${rarity}`);
+      rows.push([copy, id, rarity, Math.max(1, Number(e.count) || 1), e.starred ? 1 : 0, e.is_shiny ? 1 : 0, image]);
       if (c.wikipedia_title) titles[id] = String(c.wikipedia_title);
       if (typeof e.owned_by_viewer === "boolean") mine[id] = e.owned_by_viewer;
+      if (Array.isArray(e.tags)) {
+        tagsSeen = true;
+        const ids = [];
+        for (const t of e.tags) {
+          const tagId = t && typeof t === "object" ? t.id || t.tag_id : t;
+          if (!tagId) continue;
+          ids.push(String(tagId));
+          const name = t && typeof t === "object" ? t.name || (t.tags && t.tags.name) : "";
+          if (name && !tagNames[String(tagId)]) tagNames[String(tagId)] = String(name);
+        }
+        if (ids.length) tags[copy] = ids;
+      }
     }
-    return { rows, titles, mine };
+    return { rows, titles, mine, tags, tagNames, tagsSeen };
   }
 
   /**
@@ -727,7 +753,10 @@ const WME = (() => {
   /** Code de partage d'une famille (#20) : « WME-F1. » suivi du JSON { name, cards: [[id, titre]] } en base64. */
   function familyCode(family) {
     const json = JSON.stringify({ name: family.name, cards: family.cards.map((c) => [c.id, c.title]) });
-    return "WME-F1." + btoa(String.fromCharCode(...new TextEncoder().encode(json)));
+    const bytes = new TextEncoder().encode(json);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192)); // grande famille
+    return "WME-F1." + btoa(binary);
   }
 
   /** Famille lue dans un code de partage -> { name, cards: [{ id, title }] } ; null si le code est illisible. */
@@ -737,7 +766,7 @@ const WME = (() => {
       if (!raw.startsWith("WME-F1.")) return null;
       const data = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(raw.slice(7)), (ch) => ch.charCodeAt(0))));
       const cards = (Array.isArray(data.cards) ? data.cards : []).filter((c) => Array.isArray(c) && /^[\w-]{1,64}$/.test(String(c[0])))
-        .map(([id, title]) => ({ id: String(id), title: String(title || id).slice(0, 200) })).slice(0, 2000);
+        .map(([id, title]) => ({ id: String(id), title: String(title || id).slice(0, 200) })).slice(0, 5000);
       return { name: String(data.name || "Famille").slice(0, 80), cards };
     } catch (_) {
       return null;
@@ -759,7 +788,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, friendRows, familyProgress, familyCode, readFamilyCode, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, familyProgress, familyCode, readFamilyCode, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

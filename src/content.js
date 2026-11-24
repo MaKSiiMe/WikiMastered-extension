@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -69,9 +69,9 @@
     set: (key, value) => chrome.storage.local.set({ [key]: value }),
   };
 
-  // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
-  // minSales : ventes sur 12 semaines à partir desquelles un prix est fiable (sinon « ≈ »).
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, ownedMarks: true, collectionOrder: "", deals: true, images: false };
+  // Réglages persistés : badges actifs par défaut ; automatisations par clic, bonnes affaires du marché et images
+  // Wikipédia désactivées par défaut. minWeekSales : ventes de la semaine à partir desquelles un prix est fiable.
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, deals: false, images: false };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
@@ -572,10 +572,6 @@
 
   const onMarket = () => /^\/(marketplace|market|marche)(\/|$)/.test(location.pathname);
 
-  // Pastille « ✓ » / « Nouvelle » : pas sur sa propre collection ni sur la Collection globale (le site l'y montre
-  // déjà), ni sur la page des paquets (toutes les cartes tirées sont à nous).
-  const ownMarks = () => settings.ownedMarks && !/^\/(collection|global-collection|pulls)(\/|$)/.test(location.pathname);
-
   // Certaines pages (Collection globale) gardent leur réponse dans le sessionStorage de l'onglet et ne la redemandent
   // pas quand on y revient : aucune requête à écouter. On lit donc aussi ces copies (une seule fois chacune).
   const readCopies = new Set();
@@ -607,7 +603,7 @@
   // Le site n'a pas de classe CSS stable pour une carte : on la retrouve par son titre. On parcourt les textes de la
   // page ; un texte égal au titre d'une carte connue est le nom de la carte, et sa « tuile » est le premier parent qui
   // contient une image et a des frères (une grille). Idée reprise de wm-qol (Kitsoune), qui résiste aux mises à jour.
-  const OURS = ".wme-badge, .wme-trade, .wme-fiche, .wme-art, .wme-draft";
+  const OURS = ".wme-badge, .wme-trade, .wme-art, .wme-draft";
 
   // Taille de l'illustration d'une carte : les petites images (icônes des étiquettes…) ne comptent pas. Une « carte »
   // plus large que CARD_MAX_PX est en fait une fenêtre (la fiche d'une carte) : le titre de son en-tête n'a pas de badge.
@@ -703,42 +699,30 @@
     if (entryPrices && (isFresh || usable(entryPrices))) {
       const q = entryPrices.q[rarity];
       // Plus de 6 h : relu en arrière-plan ; affiché grisé seulement après 24 h.
-      const block = refused.get(entry.id);
-      const old = isFresh ? "" : block ? ` Relecture refusée par le site (${block.error}) : nouvel essai bientôt.`
-        : " Relecture en cours.";
       if (entryPrices.failed) {
         [text, tip, state] = ["?", `Prix illisible : ${entryPrices.failed}`, "none"];
       } else if (q && shiny) {
         // Le site ne donne aucun prix propre aux shiny : afficher celui de la carte ordinaire tromperait.
         [text, state] = ["✦ ?", "none"];
-        tip = `${entry.title} ${rarity} shiny : le site ne donne pas de prix pour les shiny.\n` +
-          `${rarity} ordinaire : ≈ ${wb(q.avg)} (${q.count} vente(s)).${old}`;
+        tip = `Shiny : le site ne donne pas leur prix (${rarity} ordinaire ≈ ${wb(q.avg)}).`;
       } else if (q) {
-        const label = q.week >= currentWeek() ? "Prix moyen de la semaine" : `Dernier prix moyen connu (semaine du ${q.week})`;
         const grey = Date.now() - entryPrices.at >= GREY_AFTER_MS;
-        // Prix fiable (assez de ventes sur 12 semaines) : le chiffre seul ; sinon « ≈ », à prendre avec prudence.
+        // Prix fiable (assez de ventes dans la semaine) : le chiffre seul ; sinon « ≈ », à prendre avec prudence.
         const sure = reliable(q, settings.minWeekSales);
         [text, state, value] = [sure ? wb(q.avg) : `≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
-        // Marché : bonne affaire ou surcoté (#16), d'après la mise minimum de l'enchère affichée.
+        // Marché : bonne affaire ou surcoté (#16, option), d'après la mise minimum de l'enchère affichée.
         const auction = settings.deals && onMarket() ? auctions.get(`${entry.id}|${rarity}`) : null;
         deal = auction && !shiny ? auctionDeal(auction, q.avg, sure) : null;
+        const when = q.week >= currentWeek() ? "cette semaine" : `semaine du ${q.week.slice(8, 10)}/${q.week.slice(5, 7)}`;
         const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
-        const sales = sure ? "" : ` Prix incertain : moins de ${settings.minWeekSales} ventes dans la semaine.`;
-        const recent = Number.isFinite(q.sales12) ? ` ${q.sales12} vente(s) sur ${RECENT_WEEKS} semaines.` : "";
-        tip = `${entry.title} ${rarity} : ${label}, ${q.count} vente(s).${sales}${recent} ` +
-          `Relevé il y a ${ago(Date.now() - entryPrices.at)}${by}.${old}`;
-        if (deal) {
-          tip += deal.kind === "deal" ? `\nBonne affaire : la mise minimum est ${-deal.pct} % sous la cote, et l'enchère finit bientôt.`
-            : `\nSurcoté : la mise minimum dépasse la cote de ${deal.pct} %.`;
-        }
+        tip = `${rarity} · ${q.count} vente(s) ${when} · relevé il y a ${ago(Date.now() - entryPrices.at)}${by}`;
+        if (deal) tip += deal.kind === "deal" ? `\nBonne affaire : mise minimum ${-deal.pct} % sous le prix, fin bientôt.`
+          : `\nSurcoté : mise minimum ${deal.pct} % au-dessus du prix.`;
       } else {
-        const others = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a))
-          .map(([r, v]) => `${r} ≈ ${wb(v.avg)}`).join(", ");
         [text, state] = [rarity ? "—" : "?", "none"];
-        tip = rarity ? `Aucune vente enregistrée en ${rarity}.` : "Rareté de cette carte non reconnue.";
-        if (others) tip += ` Autres raretés : ${others}.`;
-        tip += old;
+        tip = rarity ? `Jamais vendue en ${rarity}.` : "Rareté non reconnue.";
       }
+      if (!isFresh) tip += refused.get(entry.id) ? "\nRelecture refusée par le site : nouvel essai bientôt." : "\nRelecture en cours.";
     }
     let el = tile.querySelector(":scope > .wme-badge");
     if (!el) {
@@ -759,9 +743,6 @@
     if (el.textContent !== text) el.textContent = text;
     el.dataset.deal = deal ? `${deal.pct > 0 ? "+" : "−"}${Math.abs(deal.pct)} %` : "";
     el.dataset.dealKind = deal ? deal.kind : "";
-    const own = ownMarks() ? owned.get(entry.id) : undefined;
-    el.dataset.own = own === true ? "yes" : own === false ? "no" : "";
-    if (own !== undefined) tip += own ? "\nTu as déjà cette carte." : "\nTu n'as pas cette carte.";
     el.title = tip;
     el.dataset.state = state;
     return value;
@@ -801,20 +782,29 @@
     return best;
   }
 
+  // Un compte supprimé s'appelle « compte_supprime_<identifiant> » : on n'en garde que le sens.
+  const who = (name) => (/^compte_supprime/i.test(String(name)) ? "Compte supprimé" : name);
+
   function tradeLine(trade) {
     const balance = tradeBalance(trade, (item) => priceOf(item, true));
-    const side = (s) => `${s.name} donne ≈ ${wb(s.cards)}` + (s.wb ? ` + ${wb(s.wb)} WB` : "") +
+    const side = (s) => `${who(s.name)} donne ≈ ${wb(s.cards)}` + (s.wb ? ` + ${wb(s.wb)} WB` : "") +
       (s.missing ? ` (${s.missing} carte${s.missing > 1 ? "s" : ""} sans prix)` : "");
     const [a, b] = balance.sides;
-    const winner = balance.gain >= 0 ? a.name : b.name;
+    const winner = who(balance.gain >= 0 ? a.name : b.name);
     const verdict = Math.abs(balance.gain) < 1 ? "échange équilibré" : `${winner} y gagne ≈ ${wb(Math.abs(balance.gain))}`;
     return { text: `${side(a)} · ${side(b)} → ${verdict}`, gain: balance.gain, incomplete: a.missing + b.missing > 0 };
   }
 
+  // Fenêtres du site (fiche d'une carte, proposition d'échange) : un voile plein écran.
+  const MODAL = "div.fixed.inset-0";
+
+  // Bilans posés seulement sur la page des échanges, hors des fenêtres : dans la fenêtre « Échanger avec … », les
+  // cartes de l'ami ressembleraient à un échange déjà fait qui les contient.
   let shownTrades = [];
-  function drawTrades(tiles) {
+  function drawTrades(allTiles) {
     const kept = new Set();
     shownTrades = [];
+    const tiles = location.pathname.startsWith("/trades") ? allTiles.filter(([tile]) => !tile.closest(MODAL)) : [];
     for (const trade of trades.values()) {
       const block = tradeBlock(trade, tiles);
       if (!block || !block.parentElement) continue;
@@ -831,7 +821,7 @@
       }
       // Le bilan, puis (#26) le détail dépliable : chaque carte de chaque côté, titre complet, rareté et prix (le site
       // tronque les noms dans ses offres).
-      const details = trade.sides.map((side) => `${side.name} donne : ` + (side.items.length
+      const details = trade.sides.map((side) => `${who(side.name)} donne : ` + (side.items.length
         ? side.items.map((i) => `${i.title} ${i.rarity}${i.shiny ? " ✦" : ""} (${Number.isFinite(priceOf(i, true)) ? `≈ ${wb(priceOf(i, true))}` : "sans prix"})`).join(" · ")
         : "aucune carte") + (side.wb ? ` + ${wb(side.wb)} WB` : ""));
       const signature = [line.text, ...details].join("\n");
@@ -853,18 +843,19 @@
   // ------------------------------------------------------------------ composition d'une offre (#50)
   // Fenêtre « Échanger avec … » du site : barre « Moi : 2 cartes · 150 wb » / « <ami> : 1 carte », onglets « Mes
   // cartes » / « Cartes de <ami> » (l'actif est souligné : border-b-2), et sous « Sélectionnées (n) » les cartes
-  // choisies de l'onglet ouvert seulement. On retient celles de chaque côté au fil des onglets, et on pose sous la barre
-  // ce que tu donnes, ce que tu reçois et l'écart. Repères relevés dans le code de LeadOn/Wikimasters-Toolbox. Lecture
-  // seule : l'offre part toujours avec le bouton du site.
+  // choisies de l'onglet ouvert seulement. On retient celles de chaque côté au fil des onglets. Dans la barre : la
+  // valeur de chaque côté, et dessous l'écart ; le détail carte par carte va au panneau (onglet Page). Repères relevés
+  // dans le code de LeadOn/Wikimasters-Toolbox. Lecture seule : l'offre part toujours avec le bouton du site.
   const TRADE_COUNTS = /:\s*([\d\s]+)\s*cartes?(?:\s*·\s*([\d\s]+)\s*wb)?/i;
   let tradeDraft = null; // { modal, friend, mine: [cartes], theirs: [cartes] }
+  let shownDraft = null; // bilan de l'offre pour le panneau
   const countOf = (text) => Number(String(text || "").replace(/\D/g, "")) || 0;
 
   function tradeWindow() {
-    for (const modal of document.querySelectorAll(FICHE_MODAL)) {
+    for (const modal of document.querySelectorAll(MODAL)) {
       const mineLabel = [...modal.querySelectorAll("span")].find((el) => /^Moi\s*:/.test(el.textContent.trim()));
       const bar = mineLabel && mineLabel.parentElement;
-      const theirLabel = bar && [...bar.children].find((el) => el !== mineLabel && el.tagName === "SPAN" && TRADE_COUNTS.test(el.textContent));
+      const theirLabel = bar && [...bar.children].find((el) => el !== mineLabel && el.tagName === "SPAN" && !el.classList.contains("wme-draft") && TRADE_COUNTS.test(el.textContent));
       const mineTab = theirLabel && [...modal.querySelectorAll("button")].find((b) => /^Mes cartes/.test(b.textContent.trim()));
       if (!mineTab) continue;
       const active = [...mineTab.parentElement.children].find((b) => b.tagName === "BUTTON" && String(b.className).includes("border-b-2")) || null;
@@ -874,10 +865,21 @@
     return null;
   }
 
+  // Petit élément à nous, posé une fois juste après `anchor` (et retrouvé ensuite par sa classe).
+  function ourAfter(anchor, className, tag = "span") {
+    const next = anchor.nextElementSibling;
+    if (next && next.classList.contains(className)) return next;
+    const el = Object.assign(document.createElement(tag), { className: `wme-draft ${className}` });
+    anchor.after(el);
+    return el;
+  }
+  const setText = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+
   function drawTradeDraft(tiles) {
     const w = settings.badges ? tradeWindow() : null;
     if (!w) {
       tradeDraft = null;
+      shownDraft = null;
       document.querySelectorAll(".wme-draft").forEach((el) => el.remove());
       return;
     }
@@ -893,38 +895,37 @@
       const [, count, coins] = TRADE_COUNTS.exec(label.textContent) || [];
       let value = 0;
       let missing = 0;
-      for (const c of cards) {
+      const list = cards.map((c) => {
         want(c.id, "urgent", c.rarity);
-        const p = priceOf(c, true);
-        if (Number.isFinite(p)) value += p;
+        const price = priceOf(c, true);
+        if (Number.isFinite(price)) value += price;
         else missing += 1;
-      }
-      return { value, missing, wb: countOf(coins), count: countOf(count), seen: cards.length };
+        return { title: c.title, rarity: c.rarity, shiny: c.shiny, price: Number.isFinite(price) ? price : null };
+      });
+      return { value, missing, wb: countOf(coins), count: countOf(count), seen: cards.length, cards: list };
     };
     const give = side(w.mineLabel, tradeDraft.mine);
     const get = side(w.theirLabel, tradeDraft.theirs);
     const total = (s) => s.value + s.wb;
     const gap = total(get) - total(give);
     const pct = total(give) > 0 ? Math.round((gap / total(give)) * 100) : null;
-    const unseen = (s, tab) => (s.count > s.seen ? ` (ouvre « ${tab} » pour compter ${s.count - s.seen} carte(s))` : "");
-    const lines = [
-      `Tu donnes ≈ ${wb(give.value)}${give.wb ? ` + ${wb(give.wb)} WB` : ""}${give.missing ? ` (${give.missing} sans prix)` : ""}${unseen(give, "Mes cartes")}`,
-      `Tu reçois ≈ ${wb(get.value)}${get.wb ? ` + ${wb(get.wb)} WB` : ""}${get.missing ? ` (${get.missing} sans prix)` : ""}${unseen(get, `Cartes de ${w.friend}`)}`,
-      Math.abs(gap) < 1 ? "Échange équilibré." : `${gap > 0 ? "En ta faveur" : "En sa faveur"} : ≈ ${wb(Math.abs(gap))}${pct !== null ? ` (${gap > 0 ? "+" : "−"}${Math.abs(pct)} % de ce que tu donnes)` : ""}.`,
-    ];
-    let el = w.bar.nextElementSibling && w.bar.nextElementSibling.classList.contains("wme-draft") ? w.bar.nextElementSibling : null;
-    if (!el) {
-      el = Object.assign(document.createElement("div"), { className: "wme-draft wme-trade" });
-      w.bar.after(el);
-    }
-    const text = lines.join("\n");
-    if (el.dataset.text !== text) {
-      el.dataset.text = text;
-      el.replaceChildren(...lines.map((line) => Object.assign(document.createElement("div"), { textContent: line })));
-      el.dataset.side = gap >= 0 ? "good" : "bad";
-    }
-    el.title = "Cartes choisies au prix moyen du site, dans leur rareté, plus les WB. Le site ne montre que les cartes de l'onglet ouvert : " +
-      "ouvre les deux onglets pour compter les deux côtés. L'offre part toujours avec le bouton du site.";
+    shownDraft = { friend: w.friend, give, get, gap, pct };
+    // Valeur de chaque côté, juste après son libellé dans la barre du site.
+    const value = (s) => (s.seen < s.count ? `≈ ${wb(total(s))} (${s.count - s.seen} à voir)` : `≈ ${wb(total(s))}`) + (s.missing ? ` · ${s.missing} sans prix` : "");
+    const mineValue = ourAfter(w.mineLabel, "wme-draft-value");
+    const theirValue = ourAfter(w.theirLabel, "wme-draft-value");
+    setText(mineValue, value(give));
+    setText(theirValue, value(get));
+    mineValue.title = "Tes cartes choisies, au prix moyen du site dans leur rareté, plus tes WB. « à voir » : ouvre l'onglet « Mes cartes » pour les compter.";
+    theirValue.title = `Les cartes de ${w.friend} choisies, plus ses WB. « à voir » : ouvre l'onglet « Cartes de ${w.friend} » pour les compter.`;
+    // L'écart, sous la barre.
+    const verdict = ourAfter(w.bar, "wme-draft-gap", "div");
+    const empty = !give.count && !get.count && !give.wb && !get.wb;
+    setText(verdict, empty ? "" : Math.abs(gap) < 1 ? "Échange équilibré"
+      : `${gap > 0 ? "En ta faveur" : `En faveur de ${w.friend}`} : ≈ ${wb(Math.abs(gap))}${pct !== null ? ` (${gap > 0 ? "+" : "−"}${Math.abs(pct)} %)` : ""}`);
+    verdict.dataset.side = gap >= 0 ? "good" : "bad";
+    verdict.hidden = empty;
+    verdict.title = "Le détail carte par carte est dans le panneau de l'extension, onglet Page. L'offre part toujours avec le bouton du site.";
   }
 
   let badgeTimer = null;
@@ -962,7 +963,9 @@
   let collectionReading = null;
   async function readCollection(force) {
     const cached = await store.get(COLLECTION_KEY, null);
-    const complete = cached && (!cached.rows.length || cached.rows[0].length >= 7); // la 0.7 ne gardait pas l'image
+    // La 0.7 ne gardait pas l'image, et les étiquettes ne sont lues que depuis la 0.10.1 : une collection lue avant est
+    // relue, sinon ses étiquettes manqueraient (filtre vide, « sans étiquette » = toute la collection).
+    const complete = cached && (!cached.rows.length || cached.rows[0].length >= 7) && "tags" in cached;
     if (!force && complete && Date.now() - cached.at < COLLECTION_TTL_MS) return cached;
     collectionReading ||= (async () => {
       const access = await store.get(SUPABASE_KEY, null);
@@ -1135,55 +1138,147 @@
     return q ? { state: "price", avg: q.avg, sure: reliable(q, settings.minWeekSales) } : { state: "never" };
   }
 
+  // Filtres (#19) sur ma collection ou celle d'un ami déjà lue (readFriend). Chaque ligne porte aussi les autres
+  // exemplaires de la carte (raretés des doublons) et, pour ma collection, l'exemplaire qu'on peut mettre en vente.
   async function panelFilter(criteria = {}) {
+    const wished = criteria.wished ? new Set((await readWishlist(false)).map((w) => w.id)) : new Set();
+    const isWished = (id) => wished.has(id);
     if (criteria.source && criteria.source !== "me") {
       const friend = friendCache.get(criteria.source.toLowerCase());
       if (!friend) throw new Error(`Collection de ${criteria.source} pas encore lue : clique sur « Lire sa collection ».`);
-      const result = filterCollection(friend.rows, friend.titles, cardPriceInfo, criteria, () => [],
-        (id) => (id in friend.mine ? friend.mine[id] : owned.get(id)));
+      if (friend.tagsMissing && ((criteria.tags || []).length || criteria.untagged)) throw new Error(`Le site n'a pas donné les étiquettes de ${friend.pseudo}.`);
+      const result = filterCollection(friend.rows, friend.titles, cardPriceInfo, criteria, (copy) => friend.tags[copy] || [],
+        (id) => (id in friend.mine ? friend.mine[id] : owned.get(id)), isWished);
+      for (const item of result.items) delete item.sellCopy; // pas mes cartes
       return { ...result, source: `${friend.pseudo} (lue il y a ${ago(Date.now() - friend.at)}, raretés ${friend.rarities.join(", ")})` };
     }
     const collection = await readCollection(false);
+    if (collection.tagsError && ((criteria.tags || []).length || criteria.untagged)) throw new Error(`Étiquettes illisibles : ${collection.tagsError}. Relis la collection (onglet Collection).`);
     const cardTags = collection.cardTags || {};
-    return filterCollection(collection.rows, collection.titles, cardPriceInfo, criteria, (copy) => cardTags[copy] || [], (id) => owned.get(id));
+    return filterCollection(collection.rows, collection.titles, cardPriceInfo, criteria, (copy) => cardTags[copy] || [], (id) => owned.get(id), isWished);
+  }
+
+  // Étiquettes pour les filtres : les miennes (lues avec la collection) ou celles d'un ami lu. -> { id: nom }
+  async function panelTags(source) {
+    if (source && source !== "me") {
+      const friend = friendCache.get(String(source).toLowerCase());
+      return { tags: friend ? friend.tagNames : {}, tagsError: !friend ? "" : friend.tagsMissing ? "le site ne les donne pas" : "" };
+    }
+    const c = await readCollection(false);
+    return { tags: c.tags || {}, tagsError: c.tagsError || "" };
+  }
+
+  // Mes amis (#51) : la route de la page Amis du site, amitiés acceptées. -> [pseudo], par ordre alphabétique.
+  let friendsList = null;
+  async function readFriends() {
+    if (friendsList && Date.now() - friendsList.at < 30 * 60e3) return friendsList.names;
+    const response = await siteFetch(`${location.origin}/api/friends`, { credentials: "include" });
+    if (!response.ok) throw new Error(`Liste d'amis refusée par le site (HTTP ${response.status})`);
+    const data = await response.json();
+    const list = (data && Array.isArray(data.friendships) ? data.friendships : []).filter((f) => f && f.status === "accepted");
+    // Moi : d'après la session ; sinon, le joueur présent dans toutes les amitiés.
+    let me = "";
+    const access = await store.get(SUPABASE_KEY, null);
+    if (access) me = (await session(access.base).catch(() => ({}))).userId || "";
+    if (!me && list.length > 1) {
+      const seenIds = new Map();
+      for (const f of list) for (const p of [f.requester, f.addressee]) if (p && p.id) seenIds.set(p.id, (seenIds.get(p.id) || 0) + 1);
+      me = [...seenIds].find(([, n]) => n === list.length)?.[0] || "";
+    }
+    const names = list.map((f) => (f.requester && f.requester.id === me ? f.addressee : f.requester))
+      .filter((p) => p && p.username && p.id !== me).map((p) => String(p.username))
+      .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+    friendsList = { at: Date.now(), names };
+    return names;
   }
 
   // Collection d'un autre joueur (#51), par la route de son profil, comme le site quand on la fait défiler : 50
-  // exemplaires par page, une page par seconde, 60 pages au plus, seulement les raretés choisies. Gardée 12 h.
-  const friendCache = new Map(); // pseudo en minuscules -> { pseudo, at, rarities, rows, titles, mine }
+  // exemplaires par page, une page par seconde, 60 pages au plus, seulement les raretés choisies. Gardée 12 h. La
+  // lecture continue dans l'onglet du site quand le panneau change d'onglet ; friendReading dit où elle en est.
+  const friendCache = new Map(); // pseudo en minuscules -> { pseudo, at, rarities, rows, titles, mine, tags, tagNames }
+  let friendReading = null; // { pseudo, pages, copies, promise }
   async function readFriend(pseudo, rarities) {
     const name = String(pseudo || "").trim();
     if (!/^[\w.-]{1,40}$/.test(name)) throw new Error("Pseudo invalide.");
     const wanted = (Array.isArray(rarities) && rarities.length ? rarities : ["L", "UR", "SR"]).filter((r) => rank(r) >= 0);
     const known = friendCache.get(name.toLowerCase());
     if (known && Date.now() - known.at < COLLECTION_TTL_MS && wanted.every((r) => known.rarities.includes(r))) return known;
-    const all = { rows: [], titles: {}, mine: {} };
-    let pages = 0;
-    for (const rarity of wanted) {
-      for (let page = 1; pages < 60; page++, pages++) {
-        if (pages) await sleep(1000);
-        const response = await siteFetch(`${location.origin}/api/profile/${encodeURIComponent(name)}/collection?page=${page}&sort=rarity&stats=0&rarity=${rarity}`, { credentials: "include" });
-        if (!response.ok) {
-          const body = await response.text().catch(() => "");
-          throw new Error(siteLimit(response.status, body) ? "le site limite les lectures : réessaie plus tard" : `HTTP ${response.status}`);
-        }
-        const data = await response.json();
-        const part = friendRows(data);
-        all.rows.push(...part.rows);
-        Object.assign(all.titles, part.titles);
-        Object.assign(all.mine, part.mine);
-        noteOwnership(`/api/profile/${name}/collection`, data);
-        if (!data || !Array.isArray(data.collection) || data.collection.length < 50) break;
-      }
+    if (friendReading) {
+      if (friendReading.pseudo.toLowerCase() === name.toLowerCase()) return friendReading.promise;
+      throw new Error(`Lecture de la collection de ${friendReading.pseudo} en cours : attends la fin.`);
     }
-    const result = { pseudo: name, at: Date.now(), rarities: wanted, ...all, truncated: pages >= 60 };
-    friendCache.set(name.toLowerCase(), result);
-    return result;
+    const reading = { pseudo: name, pages: 0, copies: 0, promise: null };
+    reading.promise = (async () => {
+      const all = { rows: [], titles: {}, mine: {}, tags: {}, tagNames: {}, tagsSeen: false };
+      for (const rarity of wanted) {
+        for (let page = 1; reading.pages < 60; page++) {
+          if (reading.pages) await sleep(1000);
+          reading.pages += 1;
+          const response = await siteFetch(`${location.origin}/api/profile/${encodeURIComponent(name)}/collection?page=${page}&sort=rarity&stats=0&rarity=${rarity}`, { credentials: "include" });
+          if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            throw new Error(siteLimit(response.status, body) ? "le site limite les lectures : réessaie plus tard" : `HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          const part = friendRows(data);
+          all.rows.push(...part.rows);
+          Object.assign(all.titles, part.titles);
+          Object.assign(all.mine, part.mine);
+          Object.assign(all.tags, part.tags);
+          Object.assign(all.tagNames, part.tagNames);
+          all.tagsSeen ||= part.tagsSeen;
+          reading.copies = all.rows.length;
+          noteOwnership(`/api/profile/${name}/collection`, data);
+          if (!data || !Array.isArray(data.collection) || data.collection.length < 50) break;
+        }
+      }
+      const { tagsSeen, ...rest } = all;
+      const result = { pseudo: name, at: Date.now(), rarities: wanted, ...rest, tagsMissing: !tagsSeen, truncated: reading.pages >= 60 };
+      friendCache.set(name.toLowerCase(), result);
+      return result;
+    })().finally(() => {
+      friendReading = null;
+    });
+    friendReading = reading;
+    return reading.promise;
+  }
+
+  const friendStatus = () => ({
+    reading: friendReading && { pseudo: friendReading.pseudo, pages: friendReading.pages, copies: friendReading.copies },
+    known: [...friendCache.values()].map((f) => ({ pseudo: f.pseudo, at: f.at, copies: f.rows.length, rarities: f.rarities })),
+  });
+
+  // Mise en vente d'un exemplaire de ma collection, sur clic du joueur dans le panneau (après confirmation) : la même
+  // requête que le formulaire « Mettre aux enchères » du site, avec l'identifiant de l'exemplaire (user_cards.id).
+  // Jamais réessayée : sans réponse, la vente a peut-être eu lieu.
+  const DURATIONS = [10, 30, 60, 180, 360, 720];
+  async function sellCopy(copy, base, minutes) {
+    const amount = Math.round(Number(base));
+    if (!/^[\w-]{1,64}$/.test(String(copy))) throw new Error("Exemplaire inconnu.");
+    if (!(amount >= 1)) throw new Error("Prix de départ : au moins 1 WB.");
+    if (!DURATIONS.includes(Number(minutes))) throw new Error("Durée inconnue.");
+    const collection = await store.get(COLLECTION_KEY, null);
+    const row = collection && collection.rows.find((r) => r[0] === String(copy));
+    if (!row) throw new Error("Exemplaire introuvable dans ta collection : relis-la.");
+    if (row[4]) throw new Error("Favori : le site ne le met pas en vente (retire-le des favoris d'abord).");
+    const response = await siteFetch(`${location.origin}/api/marketplace`, {
+      method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ card_id: String(copy), base_amount: amount, duration_minutes: Number(minutes) }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || (data && data.error)) {
+      if (data && (data.human_verification_required || data.code === "human_verification_required")) throw new Error("Le site demande une vérification : fais-la sur le site, puis réessaie.");
+      throw new Error((data && (data.error || data.message)) || `Refusé par le site (HTTP ${response.status})`);
+    }
+    // Exemplaire parti : retiré de la collection gardée (un de moins s'il en comptait plusieurs).
+    const rows = collection.rows.flatMap((r) => (r[0] !== String(copy) ? [r] : r[3] > 1 ? [[...r.slice(0, 3), r[3] - 1, ...r.slice(4)]] : []));
+    await store.set(COLLECTION_KEY, { ...collection, rows });
+    return { auction: data && data.auction_id };
   }
 
   // ------------------------------------------------------------------ familles (#20)
-  // Recherche dans le catalogue du site (la route de sa page « Toutes les cartes », une requête par recherche), puis
-  // possession et prix le plus bas connu des cartes d'une famille.
+  // Recherche dans le catalogue du site (la route de sa page « Toutes les cartes ») : le titre seulement, 50 cartes par
+  // page, par ordre alphabétique. -> { cards, more }
   async function catalogSearch(q, page = 1) {
     const text = String(q || "").trim().slice(0, 80);
     if (text.length < 2) throw new Error("Au moins 2 lettres.");
@@ -1193,14 +1288,35 @@
     note(data);
     noteOwnership("/api/cards", data);
     const seenIds = new Set();
-    return cardsIn(data).filter((c) => !seenIds.has(c.id) && seenIds.add(c.id)).slice(0, 50).map((c) => ({ id: c.id, title: c.title, rarity: c.rarity }));
+    const cards = cardsIn(data).filter((c) => !seenIds.has(c.id) && seenIds.add(c.id)).map((c) => ({ id: c.id, title: c.title, rarity: c.rarity }));
+    return { cards, more: Boolean(data && data.searchHasMore) || (Array.isArray(data && data.cards) && data.cards.length >= 50) };
+  }
+
+  // Cartes du jeu d'après des titres d'articles (catégorie Wikipédia, #20) : table cards de la base du site, recherche
+  // exacte par titre (indexée : ~0,2 s), 100 titres par requête. -> [{ id, title, rarity }]
+  async function cardsByTitles(titles) {
+    const list = [...new Set((Array.isArray(titles) ? titles : []).map((t) => String(t).trim()).filter(Boolean))].slice(0, 5000);
+    const access = await store.get(SUPABASE_KEY, null);
+    if (!access) throw new Error("Accès à la base pas encore repéré : recharge une page du site, puis réessaie.");
+    const { token } = await session(access.base);
+    const quote = (t) => '"' + t.replace(/\\/g, "\\\\").replace(/\x22/g, '\\"') + '"'; // titre entre guillemets (PostgREST)
+    const out = [];
+    for (let i = 0; i < list.length; i += 100) {
+      const filter = encodeURIComponent(`(${list.slice(i, i + 100).map(quote).join(",")})`);
+      const response = await fetch(`${access.base}cards?select=id,wikipedia_title,rarity&wikipedia_title=in.${filter}`, {
+        credentials: "omit", headers: { apikey: access.apikey, authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error(`Recherche des cartes refusée (HTTP ${response.status})`);
+      for (const c of await response.json()) if (c && c.id) out.push({ id: String(c.id), title: String(c.wikipedia_title), rarity: String(c.rarity || "").toUpperCase() });
+    }
+    return out;
   }
 
   async function cardsInfo(ids) {
     const collection = await store.get(COLLECTION_KEY, null);
     const mine = new Set(collection ? collection.rows.map((r) => r[1]) : []);
     const out = {};
-    for (const id of (Array.isArray(ids) ? ids : []).slice(0, 2000)) {
+    for (const id of (Array.isArray(ids) ? ids : []).slice(0, 5000)) {
       const entry = prices[id];
       const q = usable(entry) ? entry.q : null;
       const list = q ? Object.entries(q) : [];
@@ -1252,73 +1368,19 @@
     return done.size;
   }
 
-  // ------------------------------------------------------------------ fiche d'une carte (#47)
-  // Sous le titre de la fenêtre d'une carte, un bloc par rareté vendue : prix (« ≈ » s'il est incertain), ventes de la
-  // semaine et des 12 dernières, plus bas et plus haut sur 4 semaines, variation par rapport à la semaine d'avant ; et
-  // si on possède la carte. Les chiffres viennent de l'historique que le site lit lui-même en ouvrant la fiche
-  // (fromSite) : aucune requête en plus. Repères de la fenêtre relevés dans le code de LeadOn/Wikimasters-Toolbox.
-  const FICHE_MODAL = "div.fixed.inset-0";
-  const shortDay = (iso) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
-
-  // Petite courbe des moyennes par semaine (#14), en SVG (posé en éléments, jamais en HTML).
-  function trendSvg(trend) {
-    if (!Array.isArray(trend) || trend.length < 2) return null;
-    const values = trend.map(([, avg]) => avg);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const ns = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(ns, "svg");
-    svg.setAttribute("viewBox", "0 0 100 20");
-    svg.setAttribute("preserveAspectRatio", "none");
-    svg.setAttribute("class", "wme-trend");
-    const line = document.createElementNS(ns, "polyline");
-    line.setAttribute("points", values.map((v, i) => `${(i / (values.length - 1)) * 100},${18 - ((v - min) / (max - min || 1)) * 16}`).join(" "));
-    for (const [k, v] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "1.5"], ["vector-effect", "non-scaling-stroke"]]) line.setAttribute(k, v);
-    const title = document.createElementNS(ns, "title");
-    title.textContent = trend.map(([start, avg]) => `${shortDay(start)} : ${wb(avg)}`).join(" · ");
-    svg.append(title, line);
-    return svg;
-  }
-
-  // Les 5 dernières ventes d'une carte, recopiées quand le site les lit (onglet Marché de la fiche) : #15.
-  const recentSales = new Map(); // « carte|rareté » -> [prix]
-  function fromSiteSales(url, data) {
+  // Les 5 dernières ventes lues par le site lui-même (onglet Marché d'une fiche) : sans rareté demandée et moins de 5
+  // ventes en tout, c'est toute l'histoire de la carte, et donc son prix, sans requête de plus.
+  async function fromSiteSales(url, data) {
     const match = /\/api\/marketplace\/cards\/([^/?#]+)\/sales/.exec(String(url));
-    if (!match || !data || !Array.isArray(data.recent)) return;
+    if (!match || new URL(String(url), location.origin).searchParams.get("rarity") || !salesComplete(data)) return;
+    await ready;
     const id = decodeURIComponent(match[1]);
-    const asked = (new URL(String(url), location.origin).searchParams.get("rarity") || "").toUpperCase();
-    const groups = {};
-    for (const sale of data.recent) {
-      const rarity = String((sale && sale.rarity) || asked || "").toUpperCase();
-      if (rank(rarity) < 0 || !Number.isFinite(Number(sale.final_price))) continue;
-      (groups[rarity] ||= []).push(Number(sale.final_price));
-    }
-    for (const [rarity, list] of Object.entries(groups)) recentSales.set(`${id}|${rarity}`, list);
+    const mine = prices[id];
+    if (mine && !mine.failed && Date.now() - mine.at < 60e3) return;
+    remember(id, historyFromSales(data.recent), Date.now());
+    queue.delete(id);
+    savePricesSoon();
     scheduleBadges();
-  }
-
-  // Une ligne par rareté vendue : texte, courbe, et médiane des dernières ventes quand le site les a lues.
-  function ficheRows(entry) {
-    const entryPrices = prices[entry.id];
-    if (!entryPrices || !usable(entryPrices)) return { rows: [{ text: "Prix en cours de lecture…" }], age: "" };
-    const rows = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a)).map(([rarity, q]) => {
-      const sure = reliable(q, settings.minWeekSales);
-      const when = q.week >= currentWeek() ? "cette semaine" : `la semaine du ${shortDay(q.week)}`;
-      const parts = [`${rarity} ${sure ? "" : "≈ "}${wb(q.avg)}`, `${q.count} vente(s) ${when}`];
-      if (Number.isFinite(q.sales12)) parts.push(`${q.sales12} sur 12 sem.`);
-      if (Number.isFinite(q.low4) && Number.isFinite(q.high4)) parts.push(`4 sem. : ${wb(q.low4)} – ${wb(q.high4)}`);
-      if (Number.isFinite(q.prev) && q.prev > 0) {
-        const pct = Math.round((q.avg / q.prev - 1) * 100);
-        parts.push(`${pct > 0 ? "+" : ""}${pct} % sur la semaine d'avant`);
-      }
-      const stats = quartiles(recentSales.get(`${entry.id}|${rarity}`));
-      if (stats) parts.push(`${stats.n} dernière(s) vente(s) : médiane ${wb(stats.median)}${stats.n >= 3 ? `, Q1–Q3 ${wb(stats.q1)} – ${wb(stats.q3)}` : ""}`);
-      return { text: parts.join(" · "), trend: q.trend };
-    });
-    if (!rows.length) rows.push({ text: "Jamais vendue." });
-    const age = `Relevé il y a ${ago(Date.now() - entryPrices.at)}` +
-      (entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "") + ".";
-    return { rows, age };
   }
 
   // ------------------------------------------------------------------ images Wikipédia (#25, option)
@@ -1362,106 +1424,7 @@
     holder.append(img);
   }
 
-  // ↻ (#17) : relit tout de suite le prix de cette carte sur le site (pas le cache partagé), en tête de file.
-  function rereadCard(id) {
-    delete prices[id];
-    refused.delete(id);
-    sharedAsked.set(id, Date.now());
-    want(id, "urgent");
-    savePricesSoon();
-    scheduleBadges();
-  }
-
-  function drawFiches() {
-    for (const modal of document.querySelectorAll(FICHE_MODAL)) {
-      const title = modal.querySelector("h2");
-      const entry = title && seen.get(norm(title.textContent));
-      let block = modal.querySelector(".wme-fiche");
-      if (!entry) {
-        if (block) block.remove();
-        continue;
-      }
-      want(entry.id, "urgent");
-      if (!block) {
-        block = document.createElement("div");
-        block.className = "wme-fiche";
-        const anchor = title.parentElement && title.parentElement !== modal ? title.parentElement : title;
-        anchor.after(block);
-      }
-      const { rows, age } = ficheRows(entry);
-      const own = owned.get(entry.id);
-      const notes = [age, own === undefined ? "" : own ? "Tu as déjà cette carte." : "Tu n'as pas cette carte."].filter(Boolean);
-      const text = [...rows.map((r) => r.text + (r.trend ? r.trend.length : "")), ...notes].join("\n");
-      if (block.dataset.text === text) continue;
-      block.dataset.text = text;
-      const div = (props, ...children) => {
-        const el = Object.assign(document.createElement("div"), props);
-        el.append(...children.filter(Boolean));
-        return el;
-      };
-      const wiki = entry.url || `https://fr.wikipedia.org/wiki/${encodeURIComponent(entry.title.replace(/ /g, "_"))}`;
-      const reread = Object.assign(document.createElement("button"), { type: "button", className: "wme-link", textContent: "↻ Relire le prix" });
-      reread.addEventListener("click", (event) => {
-        event.stopPropagation();
-        rereadCard(entry.id);
-      });
-      const link = Object.assign(document.createElement("a"), { href: wiki, target: "_blank", rel: "noopener noreferrer", className: "wme-link", textContent: "Wikipédia ↗" });
-      link.addEventListener("click", (event) => event.stopPropagation());
-      block.replaceChildren(
-        ...rows.map((r) => div({ className: "wme-row" }, div({ textContent: r.text }), trendSvg(r.trend))),
-        ...notes.map((line) => div({ className: "wme-note", textContent: line })),
-        div({ className: "wme-actions" }, reread, link));
-    }
-  }
-
-  // ------------------------------------------------------------------ ordre de la collection (#46)
-  // Le site revient à l'ordre par rareté à chaque visite de /collection. Avec un ordre choisi dans la fenêtre (« Nom »,
-  // « Favoris », « Date d'ajout » : les libellés de son menu), on le sélectionne dans son menu, une fois par visite ;
-  // un ordre choisi ensuite à la main est gardé jusqu'à la visite suivante. Repères relevés dans le code de
-  // LeadOn/Wikimasters-Toolbox (features/site-dom.js) : bouton « Trier la collection », options role="option".
-  const ORDER_BUTTON = 'main button[aria-label="Trier la collection"]';
-  const ORDER_TRIES = 3;
-  let orderVisit = null; // { wanted, tries, done, busy } pour la visite en cours de /collection
-
-  async function ensureCollectionOrder() {
-    if (location.pathname !== "/collection") {
-      orderVisit = null;
-      return;
-    }
-    const wanted = settings.collectionOrder || "";
-    if (!orderVisit || orderVisit.wanted !== wanted) orderVisit = { wanted, tries: 0, done: false, busy: false };
-    const visit = orderVisit;
-    const button = document.querySelector(ORDER_BUTTON);
-    if (visit.done || visit.busy || !button) return;
-    if (!wanted || button.textContent.trim() === wanted) {
-      visit.done = true;
-      return;
-    }
-    const openList = () => button.getAttribute("aria-expanded") === "true"
-      ? document.getElementById(button.getAttribute("aria-controls") || "") : null;
-    let list = openList();
-    if (!list) {
-      if (visit.tries >= ORDER_TRIES) {
-        visit.done = true; // menu qui ne s'ouvre pas : on garde l'ordre du site
-        return;
-      }
-      visit.tries += 1;
-      visit.busy = true;
-      button.click();
-      for (let waited = 0; !list && waited < 1000; waited += 50) {
-        await sleep(50);
-        list = openList();
-      }
-      visit.busy = false;
-      if (!list || visit !== orderVisit) return; // page quittée ou réglage changé pendant l'attente
-    }
-    visit.done = true;
-    const option = [...list.querySelectorAll('[role="option"]')].find((o) => o.textContent.trim() === wanted);
-    (option || button).click(); // option introuvable (libellé changé par le site) : menu refermé, ordre du site
-  }
-
   function drawBadges() {
-    ensureCollectionOrder();
     readSessionCopies();
     document.documentElement.classList.toggle("wme-hover-only", hoverOnly());
     if (!settings.badges) {
@@ -1472,7 +1435,6 @@
       shownTrades = [];
       return;
     }
-    drawFiches();
     const tiles = findTiles();
     pageTiles = new Map();
     for (const [tile, entry] of tiles) (pageTiles.get(entry.id) || pageTiles.set(entry.id, []).get(entry.id)).push(tile);
@@ -1552,6 +1514,21 @@
     return out;
   }
 
+  // Enchères vues sur le marché, avec leur écart à la cote (onglet Enchères du panneau) : bonnes affaires et surcotées,
+  // seulement avec un prix fiable, les plus proches de leur fin d'abord.
+  function auctionDeals() {
+    const now = Date.now();
+    const out = [];
+    for (const a of auctions.values()) {
+      if (!(a.endAt > now)) continue;
+      const entry = prices[a.cardId];
+      const q = usable(entry) && !entry.failed ? entry.q[a.rarity] : null;
+      const deal = q ? auctionDeal(a, q.avg, reliable(q, settings.minWeekSales), now) : null;
+      if (deal) out.push({ title: a.title, rarity: a.rarity, price: q.avg, bid: minBid(a), endAt: a.endAt, ...deal });
+    }
+    return out.sort((x, y) => x.endAt - y.endAt).slice(0, 50);
+  }
+
   // Plusieurs onglets du site ouverts : chacun garde le journal à jour quand un autre l'écrit.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
@@ -1577,12 +1554,16 @@
       const work = message.action === "loadPrices" ? loadMissingPrices(Array.isArray(message.rarities) ? message.rarities : [])
         .then((count) => ({ ok: true, count }))
         : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
-        : message.action === "catalogSearch" ? catalogSearch(message.q, message.page).then((cards) => ({ ok: true, cards }))
+        : message.action === "catalogSearch" ? catalogSearch(message.q, message.page).then((found) => ({ ok: true, ...found }))
+        : message.action === "cardsByTitles" ? cardsByTitles(message.titles).then((cards) => ({ ok: true, cards }))
+        : message.action === "friends" ? readFriends().then((names) => ({ ok: true, names }))
+        : message.action === "friendStatus" ? Promise.resolve({ ok: true, ...friendStatus() })
+        : message.action === "sell" ? sellCopy(message.copy, message.base, message.minutes).then((r) => ({ ok: true, ...r }))
         : message.action === "cardsInfo" ? cardsInfo(message.ids).then((info) => ({ ok: true, info }))
         : message.action === "tagCards" ? tagCards(message.tag).then((cards) => ({ ok: true, cards }))
-        : message.action === "loadCardPrices" ? Promise.resolve((message.ids || []).slice(0, 500).forEach((id) => want(String(id), "background")))
+        : message.action === "loadCardPrices" ? Promise.resolve((message.ids || []).slice(0, 5000).forEach((id) => want(String(id), "background")))
           .then(() => ({ ok: true }))
-        : message.action === "tags" ? readCollection(false).then((c) => ({ ok: true, tags: c.tags || {}, tagsError: c.tagsError || "" }))
+        : message.action === "tags" ? panelTags(message.source).then((t) => ({ ok: true, ...t }))
         : message.action === "friendRead" ? readFriend(message.pseudo, message.rarities)
           .then((f) => ({ ok: true, pseudo: f.pseudo, copies: f.rows.length, truncated: f.truncated }))
         : message.action === "wishlist" ? panelWishlist(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
@@ -1610,15 +1591,6 @@
       settings.deals = Boolean(message.on);
       store.set("settings", settings);
       drawBadges();
-    } else if (message.type === "ownedMarks") {
-      settings.ownedMarks = Boolean(message.on);
-      store.set("settings", settings);
-      drawBadges();
-    } else if (message.type === "collectionOrder") {
-      settings.collectionOrder = ["Nom", "Favoris", "Date d'ajout"].includes(message.value) ? message.value : "";
-      store.set("settings", settings);
-      orderVisit = null; // appliqué tout de suite si la collection est affichée
-      ensureCollectionOrder();
     } else if (message.type === "minSales") {
       settings.minWeekSales = Math.min(50, Math.max(1, Math.round(Number(message.value)) || MIN_SALES));
       store.set("settings", settings);
@@ -1644,10 +1616,8 @@
       autoClickPack: settings.autoClickPack,
       autoUnblockMarket: settings.autoUnblockMarket,
       minSales: settings.minWeekSales,
-      ownedMarks: settings.ownedMarks,
       deals: settings.deals,
       images: settings.images,
-      collectionOrder: settings.collectionOrder,
       clickInfo,
       seen: seen.size,
       tiles: shownTiles,
@@ -1661,6 +1631,8 @@
       readBudget: Math.floor(READ_BUDGET * factor()),
       slowUntil,
       trades: shownTrades,
+      draft: shownDraft,
+      auctionDeals: auctionDeals(),
       shared: { on: sharedOn, ...sharedStats },
       pulls: pullRecap(pullLog, priceOf, (pullBaselineEntry && pullBaselineEntry.counts) || {}),
     });

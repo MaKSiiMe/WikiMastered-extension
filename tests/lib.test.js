@@ -308,7 +308,7 @@ test("marché : bonne affaire (fin proche, 25 % sous la cote) ou surcoté (50 % 
   const now = Date.parse("2026-11-24T12:00:00Z");
   const [a] = WME.auctionsIn({ auctions: [{ card: { id: "x", rarity: "C" }, snapshot_rarity: "sr", is_shiny: false, current_bid: 600,
     base_amount: 100, end_at: "2026-11-24T12:10:00Z" }] });
-  assert.deepEqual(a, { cardId: "x", rarity: "SR", shiny: false, current: 600, base: 100, endAt: Date.parse("2026-11-24T12:10:00Z") });
+  assert.deepEqual(a, { cardId: "x", title: "x", rarity: "SR", shiny: false, current: 600, base: 100, endAt: Date.parse("2026-11-24T12:10:00Z") });
   assert.deepEqual(WME.auctionDeal(a, 1000, true, now), { kind: "deal", pct: -34 }); // mise min 660
   assert.equal(WME.auctionDeal(a, 1000, false, now), null); // prix incertain
   assert.equal(WME.auctionDeal({ ...a, endAt: now + 3600e3 }, 1000, true, now), null); // fin trop loin
@@ -316,21 +316,31 @@ test("marché : bonne affaire (fin proche, 25 % sous la cote) ou surcoté (50 % 
   assert.equal(WME.auctionDeal({ ...a, shiny: true }, 1000, true, now), null);
 });
 
-test("médiane et quartiles des dernières ventes", () => {
-  assert.deepEqual(WME.quartiles([500, 100, 300, 200, 400]), { median: 300, q1: 200, q3: 400, n: 5 });
-  assert.deepEqual(WME.quartiles([10, 20]), { median: 15, q1: 12.5, q3: 17.5, n: 2 });
-  assert.equal(WME.quartiles([]), null);
+test("filtres : étiquettes (toutes exigées, sans étiquette), souhaits et cartes que je n'ai pas", () => {
+  const rows = [["u1", "a", "L", 1, 0, 0, 1], ["u2", "a", "L", 1, 0, 0, 1], ["u3", "b", "R", 1, 0, 0, 1], ["u4", "c", "C", 1, 0, 0, 1]];
+  const tags = { u1: ["lieu"], u2: ["religion"], u3: ["lieu"] };
+  const info = () => ({ state: "unknown" });
+  const f = (c, mine, wished) => WME.filterCollection(rows, {}, info, { sort: "rarity", ...c }, (u) => tags[u] || [], mine, wished).items.map((i) => i.id);
+  assert.deepEqual(f({ tags: ["lieu"] }), ["a", "b"]);
+  assert.deepEqual(f({ tags: ["lieu", "religion"] }), ["a"]); // les deux étiquettes, sur ses exemplaires à eux tous
+  assert.deepEqual(f({ untagged: true }), ["c"]);
+  assert.deepEqual(f({ notMine: true }, (id) => ({ a: true, b: false })[id]), ["b"]); // c : inconnu, écartée
+  assert.deepEqual(f({ wished: true }, undefined, (id) => id === "c"), ["c"]);
 });
 
-test("filtres : étiquettes (avec, sans, l'une de) et cartes que je n'ai pas", () => {
-  const rows = [["u1", "a", "L", 1, 0, 0, 1], ["u2", "a", "L", 1, 0, 0, 1], ["u3", "b", "R", 1, 0, 0, 1], ["u4", "c", "C", 1, 0, 0, 1]];
-  const tags = { u1: ["t1"], u3: ["t2"] };
-  const info = () => ({ state: "unknown" });
-  const f = (c, mine) => WME.filterCollection(rows, {}, info, { sort: "rarity", ...c }, (u) => tags[u] || [], mine).items.map((i) => i.id);
-  assert.deepEqual(f({ tag: "any" }), ["a", "b"]);
-  assert.deepEqual(f({ tag: "none" }), ["a", "c"]); // a : un exemplaire sans étiquette
-  assert.deepEqual(f({ tag: "t2" }), ["b"]);
-  assert.deepEqual(f({ notMine: true }, (id) => ({ a: true, b: false })[id]), ["b"]); // c : inconnu, écartée
+test("filtres : raretés de tous les exemplaires d'une carte, exemplaire à vendre", () => {
+  const rows = [["u1", "a", "L", 1, 1, 0, 1], ["u2", "a", "UR", 2, 0, 0, 1], ["u3", "a", "UR", 1, 0, 1, 1], ["u4", "b", "R", 1, 0, 0, 1],
+    ["u5", "c", "SR", 1, 1, 0, 1], ["u6", "c", "SR", 1, 1, 0, 1]];
+  const items = WME.filterCollection(rows, {}, () => ({ state: "unknown" }), { duplicates: true, sort: "rarity" }).items;
+  const a = items.find((i) => i.id === "a" && i.rarity === "UR");
+  assert.deepEqual(a.variants, [{ rarity: "L", copies: 1, starred: 1, shiny: false }, { rarity: "UR", copies: 2, starred: 0, shiny: false },
+    { rarity: "UR", copies: 1, starred: 0, shiny: true }]);
+  assert.equal(a.sellCopy, "u2"); // ni favori ni shiny
+  assert.equal(items.find((i) => i.id === "a" && i.rarity === "L").sellCopy, null); // favori
+  assert.equal(items.find((i) => i.id === "c").sellCopy, null); // deux favoris
+  assert.equal(items.find((i) => i.id === "c").starred, 2);
+  assert.ok(!items.some((i) => i.id === "b")); // un seul exemplaire : pas un doublon
+  assert.equal(WME.filterCollection(rows, {}, () => ({ state: "unknown" }), {}).items.find((i) => i.id === "b").sellCopy, null);
 });
 
 test("collection d'un autre joueur lue dans la réponse de son profil", () => {
@@ -340,6 +350,10 @@ test("collection d'un autre joueur lue dans la réponse de son profil", () => {
   assert.deepEqual(r.rows, [["x1", "c1", "UR", 2, 0, 0, 2], ["x2", "c2", "C", 1, 0, 0, 0]]);
   assert.deepEqual(r.mine, { c1: false, c2: true });
   assert.deepEqual(r.titles, { c1: "Lyon", c2: "Paris" });
+  assert.equal(r.tagsSeen, false);
+  const t = WME.friendRows({ tagOptions: [{ id: "t1", name: "Lieu" }], collection: [
+    { id: "x1", card: { id: "c1" }, tags: [{ id: "t1", name: "Lieu" }, { id: "t2", name: "Babie" }] }, { id: "x2", card: { id: "c2" }, tags: ["t1"] }] });
+  assert.deepEqual([t.tags, t.tagNames, t.tagsSeen], [{ x1: ["t1", "t2"], x2: ["t1"] }, { t1: "Lieu", t2: "Babie" }, true]);
 });
 
 test("familles : progression, coût des manquantes, code de partage", () => {
