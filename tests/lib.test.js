@@ -341,3 +341,13 @@ test("collection d'un autre joueur lue dans la réponse de son profil", () => {
   assert.deepEqual(r.mine, { c1: false, c2: true });
   assert.deepEqual(r.titles, { c1: "Lyon", c2: "Paris" });
 });
+
+test("familles : progression, coût des manquantes, code de partage", () => {
+  const cards = [{ id: "a", title: "Mars" }, { id: "b", title: "Vénus" }, { id: "c", title: "Pluton" }];
+  const p = WME.familyProgress(cards, { a: { owned: true }, b: { owned: false, cheapest: { rarity: "C", avg: 12 } }, c: { owned: false, cheapest: null } });
+  assert.deepEqual([p.total, p.owned, p.cost, p.unpriced, p.missing.map((m) => m.id)], [3, 1, 12, 1, ["b", "c"]]);
+  const code = WME.familyCode({ name: "Planètes", cards });
+  assert.ok(code.startsWith("WME-F1."));
+  assert.deepEqual(WME.readFamilyCode(code), { name: "Planètes", cards });
+  assert.equal(WME.readFamilyCode("n'importe quoi"), null);
+});

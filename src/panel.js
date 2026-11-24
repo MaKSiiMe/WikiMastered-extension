@@ -68,6 +68,7 @@ const TABS = {
   duplicates: { label: "Doublons", every: 10e3, view: duplicatesView },
   filters: { label: "Filtres", every: 0, view: filtersView },
   wishes: { label: "Souhaits", every: 10e3, view: wishesView },
+  families: { label: "Familles", every: 0, view: familiesView },
   packs: { label: "Paquets", every: 2e3, view: packsView },
   settings: { label: "Réglages", every: 0, view: settingsView },
   news: { label: "Nouveautés", every: 0, view: newsView, hidden: true },
@@ -89,15 +90,19 @@ function show(key) {
   if (TABS[key].every) timer = setInterval(() => draw(false), TABS[key].every);
 }
 
+// Un dessin à la fois par onglet : un rafraîchissement automatique ne se superpose pas à un dessin en cours, mais un
+// changement d'onglet passe toujours (seul le dernier dessin demandé est affiché).
+let drawToken = 0;
 async function draw(first) {
-  if (busy) return;
+  if (busy && !first) return;
+  const token = ++drawToken;
   busy = true;
   try {
     if (first) main.replaceChildren(h("p", { className: "muted" }, "Lecture…"));
     const nodes = await TABS[tab].view(first);
-    if (nodes) main.replaceChildren(...[nodes].flat().filter(Boolean));
+    if (nodes && token === drawToken) main.replaceChildren(...[nodes].flat().filter(Boolean));
   } finally {
-    busy = false;
+    if (token === drawToken) busy = false;
   }
 }
 
@@ -327,6 +332,111 @@ async function wishesView() {
   ];
 }
 
+// ------------------------------------------------------------------ Familles (#20) : groupes de cartes à compléter,
+// gardés dans l'extension (wmFamilies). Cartes ajoutées par une recherche dans le catalogue du site ou depuis une
+// étiquette ; progression, cartes manquantes et leur coût ; partage par code.
+const FAMILIES_KEY = "wmFamilies";
+let openFamily = null;
+const loadFamilies = async () => (await chrome.storage.local.get(FAMILIES_KEY))[FAMILIES_KEY] || [];
+const saveFamilies = (list) => chrome.storage.local.set({ [FAMILIES_KEY]: list });
+
+async function familiesView() {
+  const families = await loadFamilies();
+  if (openFamily && families.some((f) => f.id === openFamily)) return familyView(families, families.find((f) => f.id === openFamily));
+  const name = h("input", { type: "text", placeholder: "nom de la famille", className: "wide" });
+  const code = h("input", { type: "text", placeholder: "code WME-F1.… d'une famille partagée", className: "wide" });
+  const status = h("p", { className: "muted" });
+  const info = families.length ? await ask("panel", { action: "cardsInfo", ids: [...new Set(families.flatMap((f) => f.cards.map((c) => c.id)))] }) : { ok: true, info: {} };
+  return [
+    families.length ? h("table", {}, ...families.map((f) => {
+      const p = WME.familyProgress(f.cards, (info.ok && info.info) || {});
+      return h("tr", {}, h("td", {}, h("a", { href: "#", on: { click: (e) => { e.preventDefault(); openFamily = f.id; draw(true); } } }, f.name)),
+        h("td", { className: "num" }, `${p.owned} / ${p.total}`), h("td", { className: "num" }, p.missing.length ? `≈ ${wb(p.cost)} WB` : "complète"));
+    })) : h("p", { className: "muted" }, "Aucune famille pour l'instant."),
+    h("h3", {}, "Nouvelle famille"),
+    name,
+    h("button", { className: "act", on: { click: async () => {
+      if (!name.value.trim()) return;
+      const family = { id: `f${Date.now()}`, name: name.value.trim().slice(0, 80), cards: [] };
+      await saveFamilies([...families, family]);
+      openFamily = family.id;
+      draw(true);
+    } } }, "Créer"),
+    h("h3", {}, "Importer une famille partagée"),
+    code,
+    h("button", { className: "act", on: { click: async () => {
+      const read = WME.readFamilyCode(code.value);
+      if (!read) { status.textContent = "Code illisible."; return; }
+      await saveFamilies([...families, { id: `f${Date.now()}`, ...read }]);
+      draw(true);
+    } } }, "Importer"),
+    status,
+  ];
+}
+
+async function familyView(families, family) {
+  const update = async (change) => {
+    const list = (await loadFamilies()).map((f) => (f.id === family.id ? change(f) : f));
+    await saveFamilies(list);
+    draw(false);
+  };
+  const addCards = (cards) => update((f) => ({ ...f, cards: [...f.cards, ...cards.filter((c) => !f.cards.some((o) => o.id === c.id)).map((c) => ({ id: c.id, title: c.title }))] }));
+  const reply = await ask("panel", { action: "cardsInfo", ids: family.cards.map((c) => c.id) });
+  const info = (reply.ok && reply.info) || {};
+  const p = WME.familyProgress(family.cards, info);
+  const unread = family.cards.filter((c) => !(info[c.id] && info[c.id].read)).map((c) => c.id);
+
+  const search = h("input", { type: "search", placeholder: "chercher dans le catalogue du site", className: "wide" });
+  const found = h("div", {});
+  const runSearch = async () => {
+    found.replaceChildren(h("p", { className: "muted" }, "Recherche…"));
+    const r = await ask("panel", { action: "catalogSearch", q: search.value });
+    if (!r.ok) return found.replaceChildren(...error(r));
+    found.replaceChildren(
+      r.cards.length > 1 && h("button", { className: "act small", on: { click: () => addCards(r.cards) } }, `Tout ajouter (${r.cards.length})`),
+      h("table", {}, ...r.cards.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, c.rarity),
+        h("td", {}, family.cards.some((o) => o.id === c.id) ? "déjà" : h("button", { className: "act small", on: { click: () => addCards([c]) } }, "+"))))));
+  };
+  search.addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+  const tag = h("select", {}, h("option", { value: "" }, "Ajouter les cartes d'une étiquette…"));
+  ask("panel", { action: "tags" }).then((r) => {
+    if (r.ok) tag.append(...Object.entries(r.tags || {}).sort(([, a], [, b]) => a.localeCompare(b)).map(([id, n]) => h("option", { value: id }, n)));
+  });
+  tag.addEventListener("change", async () => {
+    if (!tag.value) return;
+    const r = await ask("panel", { action: "tagCards", tag: tag.value });
+    if (r.ok) addCards(r.cards);
+  });
+  const shareStatus = h("span", { className: "muted" });
+
+  return [
+    h("p", {}, h("a", { href: "#", on: { click: (e) => { e.preventDefault(); openFamily = null; draw(true); } } }, "← Familles")),
+    h("p", { className: "big" }, `${family.name} · ${p.owned} / ${p.total}`),
+    h("p", { className: "muted" }, p.missing.length ? `Il en manque ${p.missing.length} : ≈ ${fr(p.cost)} WB au prix le plus bas connu` +
+      (p.unpriced ? ` (${p.unpriced} sans prix)` : "") : "Famille complète !"),
+    unread.length > 0 && h("button", { className: "act small", on: { click: async (e) => { await ask("panel", { action: "loadCardPrices", ids: unread }); e.target.textContent = `${unread.length} prix en file`; } } },
+      `Lire les prix manquants (${unread.length})`),
+    h("h3", {}, "Ajouter des cartes"),
+    search, h("button", { className: "act small", on: { click: runSearch } }, "Chercher"), found, tag,
+    h("h3", {}, "Cartes manquantes"),
+    p.missing.length ? h("table", {}, ...p.missing.map((c) => h("tr", {}, h("td", {}, c.title),
+      h("td", { className: "num" }, c.cheapest ? `${c.cheapest.rarity} ${wb(c.cheapest.avg)}` : "?"),
+      h("td", {}, h("button", { className: "act small", title: "Retirer de la famille", on: { click: () => update((f) => ({ ...f, cards: f.cards.filter((o) => o.id !== c.id) })) } }, "×"))))) : null,
+    h("h3", {}, `Possédées (${p.owned})`),
+    h("p", { className: "muted" }, family.cards.filter((c) => info[c.id] && info[c.id].owned).map((c) => c.title).join(" · ") || "aucune"),
+    h("h3", {}, "Famille"),
+    h("button", { className: "act small", on: { click: async () => {
+      await navigator.clipboard.writeText(WME.familyCode(family)).then(() => { shareStatus.textContent = " code copié"; }, () => { shareStatus.textContent = ` ${WME.familyCode(family)}`; });
+    } } }, "Partager (code)"), shareStatus, " ",
+    h("button", { className: "act small", on: { click: async () => {
+      if (!confirm(`Supprimer la famille « ${family.name} » ?`)) return;
+      await saveFamilies(families.filter((f) => f.id !== family.id));
+      openFamily = null;
+      draw(true);
+    } } }, "Supprimer"),
+  ];
+}
+
 // ------------------------------------------------------------------ Paquets : récap et automatisation
 async function packsView() {
   const state = await ask("state");
@@ -441,6 +551,7 @@ const DATA = [
   { key: "wmPulls", label: "Récap des paquets", clear: false, backup: true },
   { key: "wmPullBaseline", label: "Compteurs repris de « Prix moyen collection »", clear: false, backup: true },
   { key: "wmValueHistory", label: "Courbe de la valeur (une mesure par jour)", clear: false, backup: true },
+  { key: "wmFamilies", label: "Familles", clear: false, backup: true },
   { key: "wmLimitLog", label: "Relevé des refus du site", clear: true, backup: true },
   { key: "settings", label: "Réglages", clear: false, backup: true },
   { key: "shared", label: "Prix partagés : adresse et jeton", clear: false, backup: true },

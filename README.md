@@ -76,6 +76,7 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
     - étiquettes : avec, sans, ou l'une des tiennes.
 
     Tri par valeur ou par rareté.
+  - **Familles** : des groupes de cartes à compléter. Ajout par une recherche dans le catalogue du site ou depuis une de tes étiquettes ; progression (possédées / total), cartes manquantes et coût pour compléter au prix le plus bas connu ; partage par un code `WME-F1.…`.
   - **Souhaits** : ta liste de souhaits du site, chaque carte au prix le plus bas connu (toutes raretés) et les autres raretés, et le coût total.
   - **Réglages** : badges, « ✓ », seuil de fiabilité, ordre de la collection, prix partagés ; taille des données gardées, boutons pour vider les caches, sauvegarde et restauration en JSON (réglages, récap des paquets, courbe de valeur).
   - **Doublons** : chaque carte possédée en plusieurs exemplaires, l'exemplaire gardé (le plus rare), ceux en trop et ce qu'ils valent, les favoris (verrouillés par le site) signalés.

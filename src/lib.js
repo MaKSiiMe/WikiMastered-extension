@@ -710,6 +710,40 @@ const WME = (() => {
     return { rows, titles, mine };
   }
 
+  /**
+   * Progression d'une famille (#20). cards : [{ id, title }] ; info : { id: { owned, cheapest: { rarity, avg } | null } }.
+   * -> { total, owned, missing: [{ id, title, cheapest }] (les moins chères d'abord), cost (cartes manquantes au prix le
+   * plus bas connu), unpriced (manquantes sans prix) }
+   */
+  function familyProgress(cards, info) {
+    const missing = cards.filter((c) => !(info[c.id] && info[c.id].owned)).map((c) => ({ ...c, cheapest: (info[c.id] && info[c.id].cheapest) || null }));
+    missing.sort((a, b) => (a.cheapest === null) - (b.cheapest === null) || (a.cheapest ? a.cheapest.avg : 0) - (b.cheapest ? b.cheapest.avg : 0));
+    return {
+      total: cards.length, owned: cards.length - missing.length, missing,
+      cost: missing.reduce((sum, c) => sum + (c.cheapest ? c.cheapest.avg : 0), 0), unpriced: missing.filter((c) => !c.cheapest).length,
+    };
+  }
+
+  /** Code de partage d'une famille (#20) : « WME-F1. » suivi du JSON { name, cards: [[id, titre]] } en base64. */
+  function familyCode(family) {
+    const json = JSON.stringify({ name: family.name, cards: family.cards.map((c) => [c.id, c.title]) });
+    return "WME-F1." + btoa(String.fromCharCode(...new TextEncoder().encode(json)));
+  }
+
+  /** Famille lue dans un code de partage -> { name, cards: [{ id, title }] } ; null si le code est illisible. */
+  function readFamilyCode(code) {
+    try {
+      const raw = String(code || "").trim();
+      if (!raw.startsWith("WME-F1.")) return null;
+      const data = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(raw.slice(7)), (ch) => ch.charCodeAt(0))));
+      const cards = (Array.isArray(data.cards) ? data.cards : []).filter((c) => Array.isArray(c) && /^[\w-]{1,64}$/.test(String(c[0])))
+        .map(([id, title]) => ({ id: String(id), title: String(title || id).slice(0, 200) })).slice(0, 2000);
+      return { name: String(data.name || "Famille").slice(0, 80), cards };
+    } catch (_) {
+      return null;
+    }
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -725,7 +759,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, friendRows, familyProgress, familyCode, readFamilyCode, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;
