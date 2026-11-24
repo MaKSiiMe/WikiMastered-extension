@@ -9,9 +9,11 @@
   window.__wmeHooked = true;
 
   // Toutes les réponses de l'API du site : src/lib.js y cherche les cartes, où qu'elles soient (collection, marché,
-  // vitrines…). Sauf l'historique des prix : c'est l'extension qui le demande, et il ne contient pas de carte.
+  // vitrines…). L'historique des prix d'une fiche ouverte (onglet « Marché ») est recopié à part : src/content.js
+  // reprend ce prix sans requête. Les ventes (/sales) ne contiennent pas de carte.
   const WATCHED = /\/api\//i;
-  const IGNORED = /\/price-history|\/sales(?:[/?#]|$)/i;
+  const IGNORED = /\/sales(?:[/?#]|$)/i;
+  const PRICE_HISTORY = /\/api\/marketplace\/cards\/[^/?#]+\/price-history/i;
 
   // Ouverture d'un paquet : POST /api/packs/open (relevé dans l'onglet Réseau du site).
   const PACK_OPEN_URL = /\/api\/packs\/open(?:[/?#]|$)/i;
@@ -56,7 +58,7 @@
         // clone() : le corps d'une réponse ne se lit qu'une fois, le site doit pouvoir lire l'original.
         response.clone().json()
           .then((data) => {
-            const message = { source: "wme-page", url, data };
+            const message = { source: "wme-page", url, data, ...(PRICE_HISTORY.test(url) ? { kind: "price-history" } : {}) };
             buffer.push(message);
             if (buffer.length > BUFFER_MAX) buffer.shift();
             forward(message);
