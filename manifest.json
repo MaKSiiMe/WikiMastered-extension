@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "WikiMastered – Prix des cartes",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "description": "Wiki Masters : prix moyen des cartes, bilan des échanges et automatisation par clic optionnelle.",
   "permissions": [
-    "storage"
+    "storage",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://www.wiki-masters.com/*",
@@ -32,6 +33,15 @@
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
     }
+  },
+  "side_panel": {
+    "default_path": "src/panel.html"
+  },
+  "sidebar_action": {
+    "default_panel": "src/panel.html",
+    "default_title": "WikiMastered",
+    "default_icon": "icons/icon-32.png",
+    "open_at_install": false
   },
   "commands": {
     "_execute_action": {

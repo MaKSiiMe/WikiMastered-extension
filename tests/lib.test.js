@@ -220,3 +220,41 @@ test("fiche : fourchette des 4 dernières semaines et semaine précédente", () 
   const q = WME.quotes(history, now).UR;
   assert.deepEqual([q.avg, q.low4, q.high4, q.prev], [4239, 500, 7262, 3837]);
 });
+
+test("session lue dans les cookies du site, entière ou en morceaux", () => {
+  const b64url = (s) => Buffer.from(s).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const jwt = `x.${b64url(JSON.stringify({ sub: "u1", exp: 2000000000 }))}.y`;
+  const value = "base64-" + b64url(JSON.stringify({ access_token: jwt, expires_at: 2000000000, user: { id: "u1" } }));
+  const name = "sb-ref-auth-token";
+  assert.deepEqual(WME.sessionFromCookies(`a=b; ${name}=${value}`, name), { token: jwt, userId: "u1", expiresAt: 2e12 });
+  const half = Math.floor(value.length / 2);
+  assert.equal(WME.sessionFromCookies(`${name}.1=${value.slice(half)}; ${name}.0=${value.slice(0, half)}`, name).userId, "u1");
+  assert.equal(WME.sessionFromCookies("a=b", name), null);
+  assert.equal(WME.sessionFromCookies(`${name}=pas-du-json`, name), null);
+});
+
+test("bilan de la collection : valeur par rareté, plus chères, doublons", () => {
+  const rows = [
+    ["e1", "ana", "L", 1, 0, 0], ["e2", "ana", "UR", 2, 1, 0], ["e3", "lyon", "R", 1, 0, 0], ["e4", "lyon", "R", 1, 0, 1],
+    ["e5", "paris", "C", 1, 0, 0],
+  ];
+  const prices = { "ana|L": { avg: 9000, sure: true }, "ana|UR": { avg: 4000, sure: false }, "lyon|R": { avg: 50, sure: true } };
+  const s = WME.collectionSummary(rows, { ana: "Ana de Armas", lyon: "Lyon" }, (id, r) => prices[`${id}|${r}`] || null);
+  assert.equal(s.copies, 6);
+  assert.equal(s.distinct, 3);
+  assert.equal(s.value, 9000 + 2 * 4000 + 50); // le shiny et la carte sans prix ne comptent pas
+  assert.equal(s.unsure, 2);
+  assert.equal(s.unpriced, 2);
+  assert.deepEqual(s.byRarity.map((r) => r.rarity), ["L", "UR", "R", "C"]);
+  assert.deepEqual(s.top.map((c) => `${c.id} ${c.rarity}`), ["ana L", "ana UR", "lyon R"]);
+  assert.deepEqual(s.duplicates.map((d) => [d.title, d.copies, d.kept, d.extra, d.locked, d.value]), [
+    ["Ana de Armas", 3, "L", "UR, UR", 2, 8000],
+    ["Lyon", 2, "R", "R✦", 0, 0],
+  ]);
+});
+
+test("une mesure par jour de la valeur, 365 jours au plus", () => {
+  let h = {};
+  for (let d = 1; d <= 5; d++) h = WME.addDailyValue(h, `2026-11-0${d}`, d * 100.4, 3);
+  assert.deepEqual(h, { "2026-11-03": 301, "2026-11-04": 402, "2026-11-05": 502 });
+});

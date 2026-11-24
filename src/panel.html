@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>WikiMastered</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #111118; color: #e5e7eb; font: 13px/1.45 system-ui, sans-serif; }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #ffffff14; }
+    header img { width: 20px; height: 20px; }
+    header small { margin-left: auto; color: #9ca3af; }
+    nav { display: flex; gap: 4px; padding: 8px 12px 0; }
+    nav button { flex: 1; padding: 5px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: #9ca3af;
+      font: inherit; cursor: pointer; }
+    nav button[aria-selected="true"] { color: #fde68a; border-bottom-color: #fde68a; }
+    main { padding: 10px 12px; }
+    p { margin: 0 0 6px; }
+    .muted { color: #9ca3af; font-size: 12px; }
+    .big { font-size: 18px; font-weight: 700; color: #fde68a; }
+    button.act { margin: 4px 0 8px; padding: 4px 10px; border-radius: 6px; border: 1px solid #fde68a66; background: #fde68a14;
+      color: #fde68a; font: inherit; cursor: pointer; }
+    button.act:disabled { opacity: 0.5; cursor: default; }
+    table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+    th, td { padding: 3px 4px; text-align: left; border-bottom: 1px solid #ffffff0f; vertical-align: top; }
+    th { color: #9ca3af; font-weight: 500; font-size: 12px; }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    h3 { margin: 12px 0 4px; font-size: 13px; color: #fde68a; }
+    .error { color: #fca5a5; }
+    svg.spark { width: 100%; height: 40px; display: block; margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <header><img src="../icons/icon-32.png" alt=""><b>WikiMastered</b><small id="version"></small></header>
+  <nav>
+    <button data-tab="collection" aria-selected="true">Collection</button>
+    <button data-tab="duplicates" aria-selected="false">Doublons</button>
+  </nav>
+  <main id="main"><p class="muted">Lecture…</p></main>
+  <script src="lib.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

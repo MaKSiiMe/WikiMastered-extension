@@ -15,6 +15,18 @@ function h(tag, props, ...children) {
   return el;
 }
 
+// Le panneau latéral : Chrome (sidePanel) ou Firefox (sidebarAction), ouvert pendant le clic (le navigateur l'exige :
+// rien d'asynchrone avant l'appel, d'où la fenêtre lue dès l'ouverture de la popup).
+let currentWindowId = null;
+if (chrome.windows) chrome.windows.getCurrent().then((w) => { currentWindowId = w.id; }).catch(() => {});
+function openPanel() {
+  if (chrome.sidePanel && chrome.sidePanel.open && currentWindowId !== null) {
+    chrome.sidePanel.open({ windowId: currentWindowId }).then(() => window.close()).catch(() => {});
+  } else if (typeof browser !== "undefined" && browser.sidebarAction) {
+    browser.sidebarAction.open().then(() => window.close()).catch(() => {});
+  }
+}
+
 async function ask(type, extra) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return null;
@@ -33,6 +45,7 @@ function render(state) {
     return;
   }
   main.replaceChildren(
+    h("button", { on: { click: openPanel } }, "Ouvrir le panneau (collection, doublons)"),
     h("p", {}, `Cartes avec un badge : ${state.tiles}`),
     h("p", {}, `Valeur des cartes affichées : ≈ ${wb(state.value)} WB`),
     ...state.trades.map((t) => h("p", { className: "trade" }, t)),
