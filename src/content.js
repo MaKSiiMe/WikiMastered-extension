@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -33,6 +33,7 @@
   const SALES_READS_KEY = "wmSalesReads"; // … de /sales, qui a son propre quota (readBudget)
   const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause de toutes les lectures, partagée entre onglets
   const ROUTE_PAUSE_KEY = "wmRoutePause"; // { history: { until, reason }, sales: … } : quota d'une seule route atteint
+  const OWNED_KEY = "wmOwned";          // possession des cartes d'après les réponses du site : { id: 1 | 0 }
   const LIMITS_KEY = "wmLimitLog";      // refus du site, avec les lectures qui les ont précédés (addLimitEvent)
   const PULLS_KEY = "wmPulls";          // journal des paquets ouverts, à la main ou en auto (récap de la fenêtre)
   const PULLS_MAX = 10000;              // ~50 000 cartes, ~3 Mo : au-delà, les paquets les plus anciens sont oubliés
@@ -57,9 +58,10 @@
 
   // Réglages persistés : badges actifs par défaut ; automatisations par clic désactivées par défaut.
   // minSales : ventes sur 12 semaines à partir desquelles un prix est fiable (sinon « ≈ »).
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minSales: MIN_SALES };
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minSales: MIN_SALES, ownedMarks: true };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
+  const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
   const trades = new Map(); // id d'échange -> { id, sides } (src/lib.js, tradesIn)
   let pullLog = WME.emptyPullLog(); // paquets ouverts : { titles, packs } (src/lib.js, addPull)
   let pullBaselineEntry = null; // { at, counts } une fois repris de l'autre extension (ou remis à zéro)
@@ -471,8 +473,31 @@
       return;
     }
     note(event.data.data);
+    noteOwnership(event.data.url, event.data.data);
     scheduleBadges();
   });
+
+  // Possession des cartes : ce que les réponses du site en disent, gardé d'une visite à l'autre. Une carte vendue ou
+  // défaussée reste « possédée » jusqu'à ce qu'une réponse dise le contraire.
+  let ownedTimer = null;
+  function noteOwnership(url, data) {
+    let changed = false;
+    for (const [id, flag] of ownershipIn(data, url)) {
+      if (owned.get(id) === flag) continue;
+      owned.set(id, flag);
+      changed = true;
+    }
+    if (changed && !ownedTimer) {
+      ownedTimer = setTimeout(() => {
+        ownedTimer = null;
+        store.set(OWNED_KEY, Object.fromEntries([...owned].map(([id, flag]) => [id, flag ? 1 : 0])));
+      }, 2000);
+    }
+  }
+
+  // Pastille « ✓ » / « Nouvelle » : pas sur sa propre collection ni sur la Collection globale (le site l'y montre
+  // déjà), ni sur la page des paquets (toutes les cartes tirées sont à nous).
+  const ownMarks = () => settings.ownedMarks && !/^\/(collection|global-collection|pulls)(\/|$)/.test(location.pathname);
 
   // Certaines pages (Collection globale) gardent leur réponse dans le sessionStorage de l'onglet et ne la redemandent
   // pas quand on y revient : aucune requête à écouter. On lit donc aussi ces copies (une seule fois chacune).
@@ -492,7 +517,9 @@
       if (readCopies.has(tag) || value.length > 5e6) continue;
       readCopies.add(tag);
       try {
-        note(JSON.parse(value));
+        const data = JSON.parse(value);
+        note(data);
+        noteOwnership(key, data);
       } catch (_) {
         // pas du JSON : ignoré
       }
@@ -644,6 +671,9 @@
       delete el.dataset.styled;
     }
     if (el.textContent !== text) el.textContent = text;
+    const own = ownMarks() ? owned.get(entry.id) : undefined;
+    el.dataset.own = own === true ? "yes" : own === false ? "no" : "";
+    if (own !== undefined) tip += own ? "\nTu as déjà cette carte." : "\nTu n'as pas cette carte.";
     el.title = tip;
     el.dataset.state = state;
     return value;
@@ -773,6 +803,7 @@
     const clickState = typeof window.__wmeClickState === "function" ? window.__wmeClickState() : null;
     const auto = Boolean(clickState && Date.now() - clickState.autoClickAt <= AUTO_PULL_WINDOW_MS);
     const cards = cardsIn(event.data.data);
+    for (const c of cards) owned.set(c.id, true);
     pullLog = addPull(pullLog, { at: Date.now(), auto, cards }, PULLS_MAX);
     store.set(PULLS_KEY, pullLog);
     for (const c of cards) if (!c.shiny) want(c.id, "urgent", c.rarity);
@@ -845,6 +876,10 @@
     } else if (message.type === "autoUnblockMarket") {
       settings.autoUnblockMarket = Boolean(message.on);
       store.set("settings", settings);
+    } else if (message.type === "ownedMarks") {
+      settings.ownedMarks = Boolean(message.on);
+      store.set("settings", settings);
+      drawBadges();
     } else if (message.type === "minSales") {
       settings.minSales = Math.min(50, Math.max(1, Math.round(Number(message.value)) || MIN_SALES));
       store.set("settings", settings);
@@ -869,6 +904,7 @@
       autoClickPack: settings.autoClickPack,
       autoUnblockMarket: settings.autoUnblockMarket,
       minSales: settings.minSales,
+      ownedMarks: settings.ownedMarks,
       clickInfo,
       seen: seen.size,
       tiles: shownTiles,
@@ -895,6 +931,7 @@
     if (pause && pause.until > Date.now()) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     applyRoutePauses(await store.get(ROUTE_PAUSE_KEY, null));
     limitLog = await store.get(LIMITS_KEY, []);
+    for (const [id, flag] of Object.entries(await store.get(OWNED_KEY, {}))) if (!owned.has(id)) owned.set(id, Boolean(flag));
     const storedPulls = await store.get(PULLS_KEY, null);
     if (Array.isArray(storedPulls)) {
       // Premier format (essais de la 0.4, packs auto seulement) : converti une fois au format compact.
