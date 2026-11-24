@@ -194,8 +194,14 @@ async function setupMinSales() {
     const reply = await ask("minSales", { value: input.value });
     if (reply) input.value = reply.minSales;
   });
+  // Ordre de la collection remis à chaque visite (le site revient à « Rareté »).
+  const order = h("select", { className: "small-select" },
+    ...[["", "Rareté (celui du site)"], ["Nom", "Nom"], ["Favoris", "Favoris"], ["Date d'ajout", "Date d'ajout"]]
+      .map(([value, label]) => h("option", { value, selected: (state.collectionOrder || "") === value }, label)));
+  order.addEventListener("change", () => ask("collectionOrder", { value: order.value }));
   document.getElementById("settings").replaceChildren(
-    h("label", {}, "Prix fiable à partir de ", input, " vente(s) sur 12 semaines (sinon « ≈ »)"));
+    h("label", {}, "Prix fiable à partir de ", input, " vente(s) sur 12 semaines (sinon « ≈ »)"),
+    h("label", {}, "Ordre de ma collection : ", order));
 }
 setupMinSales();
 
