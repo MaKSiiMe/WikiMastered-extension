@@ -1,6 +1,7 @@
 # Feuille de route
 
 Ce qu'on prévoit, version par version. On pioche au fur et à mesure : une case cochée = livré (avec sa version).
+Tableau de suivi commun avec le bot : [projet WikiMastered](https://github.com/users/MaKSiiMe/projects/1).
 Chaque ligne a son issue (jalons [v1](https://github.com/MaKSiiMe/WikiMastered-extension/milestone/1) et [v2](https://github.com/MaKSiiMe/WikiMastered-extension/milestone/2)) : c'est là que se suit le détail ; une PR qui dit « Closes #n » la ferme.
 Les idées reprises d'autres outils citent leur source (voir [Outils existants](#outils-existants) en bas).
 
