@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, currentWeek, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb } = WME;
+  const { rank, norm, quotes, currentWeek, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -33,6 +33,7 @@
   const SALES_READS_KEY = "wmSalesReads"; // … de /sales, qui a son propre quota (readBudget)
   const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause de toutes les lectures, partagée entre onglets
   const ROUTE_PAUSE_KEY = "wmRoutePause"; // { history: { until, reason }, sales: … } : quota d'une seule route atteint
+  const LIMITS_KEY = "wmLimitLog";      // refus du site, avec les lectures qui les ont précédés (addLimitEvent)
   const PULLS_KEY = "wmPulls";          // journal des paquets ouverts, à la main ou en auto (récap de la fenêtre)
   const PULLS_MAX = 10000;              // ~50 000 cartes, ~3 Mo : au-delà, les paquets les plus anciens sont oubliés
   const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
@@ -76,6 +77,7 @@
   };
   for (const r of Object.values(ROUTES)) Object.assign(r, { last: 0, pausedUntil: 0, reason: "", reads: 0, waiting: false });
   let pausedUntil = 0; // pause de toutes les routes
+  let limitLog = []; // refus du site (LIMITS_KEY), pour la fenêtre
   let pauseReason = "";
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -131,6 +133,15 @@
     }
   }
 
+  // Note un refus du site avec nos lectures de la route juste avant (10 dernières minutes, dernière minute). Les
+  // lectures d'une autre extension sur le même compte (Toolbox…) n'y sont pas : elles comptent pourtant pour le site.
+  async function noteLimit(route, limit, status) {
+    const now = Date.now();
+    const stamps = await store.get(ROUTES[route].readsKey, []);
+    const event = { at: now, route, limit, status, reads10m: countSince(stamps, now, READ_WINDOW_MS), reads1m: countSince(stamps, now, 60e3) };
+    store.set(LIMITS_KEY, addLimitEvent(await store.get(LIMITS_KEY, []), event));
+  }
+
   async function get(route, path) {
     const r = ROUTES[route];
     for (let wait = await budgetWait(route, true); wait > 0; wait = await budgetWait(route, true)) {
@@ -151,6 +162,7 @@
         automation: "quota de lectures du site atteint",
         rate: "le site limite les requêtes",
       }[limit];
+      noteLimit(route, limit, response.status);
       if (limit === "automation") pauseRoute(route, LIMIT_PAUSE_MS, reason);
       else pauseAll(limit === "rate" && retryAfter > 0 ? retryAfter : limit === "rate" ? RATE_LIMIT_PAUSE_MS : LIMIT_PAUSE_MS, reason);
       throw Object.assign(new Error(`${reason} (HTTP ${response.status})`), { rateLimited: true });
@@ -805,6 +817,7 @@
     const pause = changes[PAUSE_KEY] && changes[PAUSE_KEY].newValue;
     if (pause && pause.until > pausedUntil) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     if (changes[ROUTE_PAUSE_KEY]) applyRoutePauses(changes[ROUTE_PAUSE_KEY].newValue);
+    if (changes[LIMITS_KEY]) limitLog = changes[LIMITS_KEY].newValue || [];
     if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
     if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
     if (changes[SHARED_KEY]) applySharedConfig(changes[SHARED_KEY].newValue);
@@ -855,6 +868,7 @@
       waiting: queue.size,
       pauses: currentPauses(),
       reads: Object.fromEntries(Object.entries(ROUTES).map(([k, r]) => [k, r.reads])),
+      limits: limitLog.slice(0, 5),
       readBudget: READ_BUDGET,
       trades: shownTrades,
       shared: { on: sharedOn, ...sharedStats },
@@ -870,6 +884,7 @@
     const pause = await store.get(PAUSE_KEY, null);
     if (pause && pause.until > Date.now()) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     applyRoutePauses(await store.get(ROUTE_PAUSE_KEY, null));
+    limitLog = await store.get(LIMITS_KEY, []);
     const storedPulls = await store.get(PULLS_KEY, null);
     if (Array.isArray(storedPulls)) {
       // Premier format (essais de la 0.4, packs auto seulement) : converti une fois au format compact.

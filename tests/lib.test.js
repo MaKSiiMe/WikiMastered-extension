@@ -168,3 +168,15 @@ test("refus du site : vérification, quota, trop vite", () => {
   assert.equal(WME.siteLimit(500, null), null);
 });
 
+
+test("relevé des refus du site : lectures d'avant, les plus récents d'abord, 50 au plus", () => {
+  const now = 1_000_000_000;
+  const stamps = [now - 11 * 60e3, now - 9 * 60e3, now - 30e3, now - 5e3, now + 1000];
+  assert.equal(WME.countSince(stamps, now, 10 * 60e3), 3);
+  assert.equal(WME.countSince(stamps, now, 60e3), 2);
+  assert.equal(WME.countSince(null, now, 60e3), 0);
+  let log = [];
+  for (let i = 0; i < 55; i++) log = WME.addLimitEvent(log, { at: i });
+  assert.equal(log.length, 50);
+  assert.equal(log[0].at, 54);
+});

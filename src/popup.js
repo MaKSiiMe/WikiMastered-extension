@@ -59,6 +59,7 @@ function render(state) {
       }),
       " Tentative de déblocage marché (/collection)"),
     clickStatus(state),
+    limitsLog(state.limits),
     sharedLive(state.shared),
     pullsRecap(state.pulls),
     h("button", { on: { click: async () => render(await ask("reread")) } }, "Relire tous les prix"),
@@ -101,6 +102,19 @@ function clickStatus(state) {
     info.userQuiet ? "joueur inactif" : "joueur actif : pas de changement de page",
   ].filter(Boolean);
   return h("p", { className: "muted" }, `Automatisation : ${info.status} · ${notes.join(" · ")}`);
+}
+
+// Derniers refus du site, avec nos lectures juste avant : de quoi connaître ses quotas sans les chercher.
+function limitsLog(limits) {
+  if (!limits || !limits.length) return null;
+  const what = { automation: "quota atteint", verification: "vérification", rate: "trop vite (429)" };
+  const route = { history: "historiques", sales: "ventes" };
+  return h("div", { className: "pulls" },
+    h("p", {}, h("b", {}, "Refus du site")),
+    ...limits.map((e) => h("p", { className: "muted" },
+      `${new Date(e.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} · ${route[e.route] || e.route} · ` +
+      `${what[e.limit] || e.limit} après ${e.reads10m} lecture(s) en 10 min, dont ${e.reads1m} dans la dernière minute`)),
+    h("p", { className: "muted" }, "Sans les lectures des autres extensions sur ton compte (Toolbox…), que le site compte aussi."));
 }
 
 // Prix partagés, côté page : ce que cet onglet a reçu du serveur et y a déposé.

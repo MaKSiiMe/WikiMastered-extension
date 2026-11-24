@@ -348,6 +348,16 @@ const WME = (() => {
     return null;
   }
 
+  /** Lectures de `stamps` faites depuis moins de `ms` avant `now`. */
+  const countSince = (stamps, now, ms) => (Array.isArray(stamps) ? stamps : []).filter((t) => t <= now && now - t < ms).length;
+
+  /**
+   * Relevé des refus du site, pour connaître ses quotas sans les chercher : chaque refus (`automation_limit`,
+   * vérification, 429) est noté avec ce que l'extension avait lu juste avant sur cette route. Les plus récents
+   * d'abord, au plus `max`. event : { at, route, limit, status, reads10m, reads1m }.
+   */
+  const addLimitEvent = (log, event, max = 50) => [event, ...(Array.isArray(log) ? log : [])].slice(0, max);
+
   /** 1250 -> « 1 250 », 12500 -> « 12,5 k » : court, pour un badge. */
   function wb(n) {
     if (!Number.isFinite(n)) return "?";
@@ -355,7 +365,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, currentWeek, weekStart, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, currentWeek, weekStart, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;
