@@ -20,7 +20,7 @@ test("le prix moyen est celui de la dernière semaine avec des ventes, comme sur
   assert.deepEqual(WME.quotes(null), {});
 });
 
-test("prix fiable : au moins 3 ventes sur les 12 dernières semaines (semaine en cours comprise)", () => {
+test("ventes des 12 dernières semaines (semaine en cours comprise) ; prix fiable : 5 ventes dans la semaine affichée", () => {
   const now = new Date("2026-11-24T12:00:00Z"); // semaine du 23/11 ; la 12e semaine en arrière commence le 07/09
   const history = { by_rarity: { R: { weekly: [
     { start: "2026-08-31", avg: 50, count: 9 }, // 13e semaine : trop vieille
@@ -29,9 +29,10 @@ test("prix fiable : au moins 3 ventes sur les 12 dernières semaines (semaine en
   ] } } };
   const q = WME.quotes(history, now).R;
   assert.equal(q.sales12, 2);
-  assert.equal(WME.reliable(q), false);
-  assert.equal(WME.reliable(q, 2), true);
-  assert.equal(WME.reliable({ avg: 70, count: 1, week: "2026-11-16" }), null); // relevé avant la 0.6
+  assert.equal(WME.reliable(q), false); // 1 vente dans la semaine affichée
+  assert.equal(WME.reliable(q, 1), true);
+  assert.equal(WME.reliable({ avg: 9000, count: 5, week: "2026-11-16" }), true);
+  assert.equal(WME.reliable(null), false);
 });
 
 test("semaine en cours : son lundi, à l'heure de Paris comme le site", () => {
