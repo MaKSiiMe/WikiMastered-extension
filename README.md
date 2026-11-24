@@ -10,10 +10,11 @@ En option, désactivée par défaut, elle peut aussi cliquer à ta place : ouvri
 
 | Version | Pour qui | Contenu |
 |---|---|---|
-| **v0** (en cours) | tout le monde | Le prix moyen sur chaque carte, le bilan d'un échange, la fenêtre de l'extension ; en 0.4, l'automatisation par clic optionnelle (paquets, déblocage du marché). |
-| v1 | le collectionneur | Tableau de bord de la collection (valeur par rareté, cartes les plus chères, doublons) ; les tris et filtres qui manquent au site ; la liste de souhaits avec le prix de chaque carte et le coût total ; publication sur le Chrome Web Store et en version signée pour Firefox. |
-| après la v1 | | Courbe de prix au survol d'un badge. De côté : alerte quand une carte souhaitée passe au marché sous sa cote. |
-| v2 | l'investisseur | Synchronisée avec le bot [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : onglet « Bot » dans le tableau de bord (positions, ventes, bilan, file, anti-bot), prix des shiny relevés par le bot, évolution de la valeur dans le temps. |
+| **v0** (en cours) | tout le monde | Le prix moyen sur chaque carte, le bilan d'un échange, la fenêtre de l'extension ; en 0.4, l'automatisation par clic optionnelle et le récap des paquets. |
+| v1 | le collectionneur | Prix des shiny, courbe de prix, tableau de bord de la collection, filtres, familles, liste de souhaits chiffrée ; Chrome Web Store et Firefox signé. |
+| v2 | l'investisseur | Synchronisée avec le bot [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : onglet « Bot », Stonks (profit réalisé et latent), trafic Wikipédia, alertes. |
+
+Le détail, case par case, avec les idées reprises des autres outils : [ROADMAP.md](ROADMAP.md).
 
 ## D'où vient le prix
 
