@@ -1,6 +1,14 @@
 // Nouveautés de chaque version, pour l'onglet « Nouveautés » du panneau (#28). option : réglage qu'un bouton
 // « Activer » allume (message au content script). La plus récente d'abord ; garder les 10 dernières versions.
 const WME_NEWS = [
+  { version: "0.13.0", items: [
+    { text: "Nouveau look : le panneau reprend les couleurs, les polices et les raretés de Wiki Masters, et suit son thème clair ou sombre." },
+    { text: "Enchères en deux : Achat (ton solde, tes mises en tête ou dépassées avec la cote, ce que tu as gagné, les bonnes affaires) et Vente (tes ventes en cours, les créneaux libres, les ventes terminées, tes doublons à mettre en vente)." },
+    { text: "Souhaits : une colonne « Chez mes amis » dit qui a chaque carte et dans quelles raretés il peut te l'échanger (pas en favori)." },
+    { text: "Filtres : les étiquettes dans un menu déroulant. « Dans ma liste de souhaits » chez un ami ne lit plus toute sa collection : tes souhaits sont cherchés chez lui en quelques secondes." },
+    { text: "Familles : les trois façons d'ajouter des cartes expliquées. Paquets : les cartes reprises d'une autre extension passent dans un « i ». Réglages : les prix partagés tout en bas, avec leur fonctionnement." },
+    { text: "Correctif : « undefined » ou « false » pouvaient s'afficher sous les résultats des filtres et de la recherche des familles." },
+  ] },
   { version: "0.12.0", items: [
     { text: "Échanges : pendant que tu composes une offre, la valeur de chaque côté s'affiche dans la barre du site, l'écart dessous, et le détail carte par carte dans l'onglet Page. Plus de bilan d'un autre échange au milieu de la fenêtre." },
     { text: "Filtres : la liste de tes amis (proposé d'office sur son profil), la lecture suivie même si tu changes d'onglet, plusieurs étiquettes à la fois (les tiennes ou celles de l'ami), « Dans ma liste de souhaits », les raretés de tous les exemplaires d'un doublon, et un bouton Vendre pour mettre un exemplaire en trop aux enchères. L'onglet Doublons disparaît (filtre Doublons)." },
@@ -26,5 +34,4 @@ const WME_NEWS = [
   { version: "0.9.3", items: [{ text: "Réglages : taille des données, vider les caches, sauvegarde et restauration JSON." }] },
   { version: "0.9.2", items: [{ text: "Prix partagés : synchronisation par différence, bien plus légère." }] },
   { version: "0.9.1", items: [{ text: "Onglet Souhaits : ta liste de souhaits chiffrée." }] },
-  { version: "0.9.0", items: [{ text: "Onglet Filtres : doublons, sans image, GIF, raretés, prix, sur toute la collection." }] },
 ];

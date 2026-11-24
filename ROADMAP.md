@@ -28,9 +28,9 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 ### Collection
 - [x] Tableau de bord : valeur totale et par rareté, cartes les plus chères, doublons, valeur du compte dans le temps (une mesure par jour). [#18](https://github.com/MaKSiiMe/WikiMastered-extension/issues/18) (0.7.0)
 - [x] Filtres cumulables qui manquent au site : doublons, sans image, GIF, étiquettes (avec / sans / l'une de), tranche de prix ; tri par valeur. (Toolbox) [#19](https://github.com/MaKSiiMe/WikiMastered-extension/issues/19) (0.9.0)
-- [x] Filtres par étiquette : plusieurs à la fois, ou sans étiquette, les miennes ou celles d'un ami (0.12.0). [#63](https://github.com/MaKSiiMe/WikiMastered-extension/issues/63) (0.10.1)
+- [x] Filtres par étiquette : plusieurs à la fois, ou sans étiquette, les miennes ou celles d'un ami (0.12.0), dans un menu déroulant (0.13.0). [#63](https://github.com/MaKSiiMe/WikiMastered-extension/issues/63) (0.10.1)
 - [x] Familles à compléter : cartes manquantes, leur prix, ajout depuis une catégorie Wikipédia (0.12.0), ajout à la liste de souhaits en un clic. (Toolbox, Prix moyen collection) [#20](https://github.com/MaKSiiMe/WikiMastered-extension/issues/20) (0.11.0)
-- [x] Liste de souhaits avec le prix de chaque carte et le coût total. [#21](https://github.com/MaKSiiMe/WikiMastered-extension/issues/21) (0.9.1)
+- [x] Liste de souhaits avec le prix de chaque carte et le coût total ; ceux de mes amis qui peuvent l'échanger (0.13.0). [#21](https://github.com/MaKSiiMe/WikiMastered-extension/issues/21) (0.9.1)
 - [x] Repérage des doublons et de ce qu'ils valent, et mise en vente d'un exemplaire en trop (filtre Doublons, 0.12.0). (Mes doublons, Toolbox) [#22](https://github.com/MaKSiiMe/WikiMastered-extension/issues/22) (0.7.0)
 - [x] ~~Pastilles « Possédée ✓ » / « Nouvelle » sur le marché, les profils et le catalogue.~~ Retiré en 0.12.0 : le site a sa propre étiquette. [#45](https://github.com/MaKSiiMe/WikiMastered-extension/issues/45)
 - [x] ~~Ordre de la collection gardé d'une visite à l'autre.~~ Retiré en 0.12.0 : remplacé par les filtres (étiquettes cumulées, tri par prix). [#46](https://github.com/MaKSiiMe/WikiMastered-extension/issues/46)
@@ -42,13 +42,14 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 
 ### Échanges
 - [x] Bilan pendant la composition d'une offre d'échange. (Toolbox) [#50](https://github.com/MaKSiiMe/WikiMastered-extension/issues/50) (0.10.1)
-- [x] Filtre de la fenêtre d'échange sur toute la collection (la sienne ou celle de l'ami). (Toolbox) [#51](https://github.com/MaKSiiMe/WikiMastered-extension/issues/51) (0.10.1)
+- [x] Filtre de la fenêtre d'échange sur toute la collection (la sienne ou celle de l'ami) ; mes souhaits chez un ami sans lire sa collection (0.13.0). (Toolbox) [#51](https://github.com/MaKSiiMe/WikiMastered-extension/issues/51) (0.10.1)
 
 ### Confort
 - [x] Image Wikimedia pour les cartes sans image, lien Wikipédia sur chaque carte. (wikimasters-extended, Toolbox) [#25](https://github.com/MaKSiiMe/WikiMastered-extension/issues/25) (0.10.0)
 - [x] Carte entière dans les offres d'échange au lieu du nom tronqué. (wikimasters-extended) [#26](https://github.com/MaKSiiMe/WikiMastered-extension/issues/26) (0.10.1)
 - [x] Page d'options : réglages, taille des caches, vider les caches, sauvegarde / restauration JSON. (henchoznoe, BallenghienAlexis) [#27](https://github.com/MaKSiiMe/WikiMastered-extension/issues/27) (0.9.3)
 - [x] Panneau « Nouveautés » après une mise à jour, avec un bouton pour activer chaque nouvelle option. (Toolbox) [#28](https://github.com/MaKSiiMe/WikiMastered-extension/issues/28) (0.10.0)
+- [x] Panneau aux couleurs, polices et raretés du site, thème clair ou sombre comme lui. (0.13.0)
 - [ ] Confort à trier après essai de Toolbox : pastille du thème, favori et étiquettes pendant la révélation, récap dans la marge, son de notification, raccourcis de la popup. [#53](https://github.com/MaKSiiMe/WikiMastered-extension/issues/53)
 
 ### Publication
@@ -66,7 +67,7 @@ Avec [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : l'extension affi
 - [ ] Trafic Wikipédia de chaque carte, depuis le tracker [MaKSiiMe/Wikimasters](https://github.com/MaKSiiMe/Wikimasters) : repérer les cartes qui montent. (Sephiroth-ctrl : bouton pageviews) [#34](https://github.com/MaKSiiMe/WikiMastered-extension/issues/34)
 - [ ] Page d'une enchère : autres enchères de la même carte où je mise, vente en cours, écart à la cote. (Toolbox) [#48](https://github.com/MaKSiiMe/WikiMastered-extension/issues/48)
 - [ ] « Prochaines enchères de cette carte », avec leur écart à la cote. (Toolbox) [#49](https://github.com/MaKSiiMe/WikiMastered-extension/issues/49)
-- [ ] Mes enchères et mes ventes en cours, en lecture seule (la surenchère reste au bot). (Toolbox) [#52](https://github.com/MaKSiiMe/WikiMastered-extension/issues/52)
+- [x] Mes enchères et mes ventes en cours, en lecture seule (la surenchère reste au bot) : onglet Enchères, Achat et Vente, avec le solde. (Toolbox, WikiMasters QoL) [#52](https://github.com/MaKSiiMe/WikiMastered-extension/issues/52) (0.13.0)
 - [ ] Alertes : carte souhaitée au marché sous sa cote, fin de tes enchères, temps restant dans le titre de l'onglet. (Toolbox) [#35](https://github.com/MaKSiiMe/WikiMastered-extension/issues/35)
 - [ ] Vérification demandée par le bot : « ! » sur l'icône et notification, avec un bouton vers la page où la faire. [#36](https://github.com/MaKSiiMe/WikiMastered-extension/issues/36)
 - [ ] Aide à la décision par carte (garder, échanger, vendre, défausser) avec les règles du bot, pour trier à la main. (BallenghienAlexis) [#37](https://github.com/MaKSiiMe/WikiMastered-extension/issues/37)
@@ -93,6 +94,7 @@ Relevé du 24/11/2026.
 | [BallenghienAlexis/wikimasters-extension](https://github.com/BallenghienAlexis/wikimasters-extension) | Décision par carte, planning des ventes, sauvegarde JSON. |
 | [ZainadosRepo/wikimasters-bot](https://github.com/ZainadosRepo/wikimasters-bot) | Classement dans tes étiquettes appris par Wikidata (« À vérifier » si incertain), défausse en lot avec aperçu. |
 | [Sephiroth-ctrl](https://github.com/Sephiroth-ctrl/Wiki-Masters-Bot), [LeKenT1](https://github.com/LeKenT1/wikimaster-bot), [Mrjb14](https://github.com/Mrjb14/botwikimaster), [AirKyzzZ](https://github.com/AirKyzzZ/wikimasters-bot) | Bots : paquets, sniping, revente, défausse, rapports Discord, profit réalisé / latent. |
+| WikiMasters QoL (Chrome Web Store, `cdgbnhgpnjpefcpdneggdbdfpfpiokml`) | Panneau : défausse auto, ouverture groupée, vente rapide au prix moyen, « Mes enchères » (ventes, mises, gagnées), auto-enchère plafonnée et chasseur d'affaires. |
 | [better-wiki-master](https://github.com/maxime-lalo/better-wiki-master), [Instant Price Check](https://greasyfork.org/en/scripts/595230-wikimasters-instant-price-check) | Prix sur les cartes, mise en valeur des cartes chères, filtres de notifications. |
 | [WikiMasters Discord Bot](https://gitlab.com/julesl1107/wikimasters-discord-bot) | Collections et profils depuis Discord. |
 | Chrome Web Store (fiches non lues) : WikiMasters+, Collection+, « c'est fun — Statistiques », WikiRemastered, Mes doublons, Speeder | À regarder depuis un navigateur. |
