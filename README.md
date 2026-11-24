@@ -83,6 +83,7 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
 - **Images Wikipédia** (option, coupée par défaut, onglet Réglages) : une carte sans image reçoit la vignette de son article Wikipédia (seul le titre est envoyé à Wikipédia). Jamais pour une image masquée par le site.
 - **Nouveautés** : après une mise à jour, un point sur l'icône ; le bouton « Nouveautés » du panneau liste ce qui a changé, avec un bouton pour activer chaque nouvelle option.
 - **Bonne affaire / surcoté** (marché) : à côté du prix, `−34 %` en vert quand l'enchère finit dans moins de 15 minutes et que la mise minimum est au moins 25 % sous la cote, `+60 %` en rouge quand elle la dépasse d'au moins 50 %. Seulement avec un prix fiable, jamais pour un shiny ; se coupe dans les Réglages.
+- **Composer une offre d'échange** : dans la fenêtre « Échanger avec … », sous la barre du site, ce que tu donnes et ce que tu reçois (cartes choisies à la cote, plus les WB) et l'écart, mis à jour à chaque carte ajoutée ou retirée. Le site ne montre que les cartes de l'onglet ouvert : ouvre les deux onglets pour compter les deux côtés. Le bilan d'un échange déjà envoyé se déplie pour montrer chaque carte en entier, avec sa rareté et son prix.
 - **Fiche d'une carte** : sous le titre de la fenêtre d'une carte, un bloc par rareté vendue :
   - prix (« ≈ » s'il est incertain), ventes de la semaine et des 12 dernières ;
   - plus bas et plus haut sur 4 semaines, variation sur la semaine d'avant ;

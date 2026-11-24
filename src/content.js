@@ -607,7 +607,7 @@
   // Le site n'a pas de classe CSS stable pour une carte : on la retrouve par son titre. On parcourt les textes de la
   // page ; un texte égal au titre d'une carte connue est le nom de la carte, et sa « tuile » est le premier parent qui
   // contient une image et a des frères (une grille). Idée reprise de wm-qol (Kitsoune), qui résiste aux mises à jour.
-  const OURS = ".wme-badge, .wme-trade, .wme-fiche, .wme-art";
+  const OURS = ".wme-badge, .wme-trade, .wme-fiche, .wme-art, .wme-draft";
 
   // Taille de l'illustration d'une carte : les petites images (icônes des étiquettes…) ne comptent pas. Une « carte »
   // plus large que CARD_MAX_PX est en fait une fenêtre (la fiche d'une carte) : le titre de son en-tête n'a pas de badge.
@@ -829,11 +829,102 @@
         el.dataset.trade = trade.id;
         block.after(el);
       }
-      if (el.textContent !== `Bilan : ${line.text}`) el.textContent = `Bilan : ${line.text}`;
-      el.title = "Cartes au prix moyen du site, dans leur rareté, plus les WB ajoutés. Les shiny n'ont pas de prix.";
+      // Le bilan, puis (#26) le détail dépliable : chaque carte de chaque côté, titre complet, rareté et prix (le site
+      // tronque les noms dans ses offres).
+      const details = trade.sides.map((side) => `${side.name} donne : ` + (side.items.length
+        ? side.items.map((i) => `${i.title} ${i.rarity}${i.shiny ? " ✦" : ""} (${Number.isFinite(priceOf(i, true)) ? `≈ ${wb(priceOf(i, true))}` : "sans prix"})`).join(" · ")
+        : "aucune carte") + (side.wb ? ` + ${wb(side.wb)} WB` : ""));
+      const signature = [line.text, ...details].join("\n");
+      if (el.dataset.text !== signature) {
+        el.dataset.text = signature;
+        const summary = Object.assign(document.createElement("summary"), { textContent: `Bilan : ${line.text}` });
+        const box = document.createElement("details");
+        box.append(summary, ...details.map((d) => Object.assign(document.createElement("div"), { className: "wme-trade-side", textContent: d })));
+        const wasOpen = el.querySelector("details") && el.querySelector("details").open;
+        box.open = Boolean(wasOpen);
+        el.replaceChildren(box);
+      }
+      el.title = "Cartes au prix moyen du site, dans leur rareté, plus les WB ajoutés. Les shiny n'ont pas de prix. Clic : le détail des cartes.";
       kept.add(el);
     }
-    document.querySelectorAll(".wme-trade").forEach((el) => kept.has(el) || el.remove());
+    document.querySelectorAll(".wme-trade:not(.wme-draft)").forEach((el) => kept.has(el) || el.remove());
+  }
+
+  // ------------------------------------------------------------------ composition d'une offre (#50)
+  // Fenêtre « Échanger avec … » du site : barre « Moi : 2 cartes · 150 wb » / « <ami> : 1 carte », onglets « Mes
+  // cartes » / « Cartes de <ami> » (l'actif est souligné : border-b-2), et sous « Sélectionnées (n) » les cartes
+  // choisies de l'onglet ouvert seulement. On retient celles de chaque côté au fil des onglets, et on pose sous la barre
+  // ce que tu donnes, ce que tu reçois et l'écart. Repères relevés dans le code de LeadOn/Wikimasters-Toolbox. Lecture
+  // seule : l'offre part toujours avec le bouton du site.
+  const TRADE_COUNTS = /:\s*([\d\s]+)\s*cartes?(?:\s*·\s*([\d\s]+)\s*wb)?/i;
+  let tradeDraft = null; // { modal, friend, mine: [cartes], theirs: [cartes] }
+  const countOf = (text) => Number(String(text || "").replace(/\D/g, "")) || 0;
+
+  function tradeWindow() {
+    for (const modal of document.querySelectorAll(FICHE_MODAL)) {
+      const mineLabel = [...modal.querySelectorAll("span")].find((el) => /^Moi\s*:/.test(el.textContent.trim()));
+      const bar = mineLabel && mineLabel.parentElement;
+      const theirLabel = bar && [...bar.children].find((el) => el !== mineLabel && el.tagName === "SPAN" && TRADE_COUNTS.test(el.textContent));
+      const mineTab = theirLabel && [...modal.querySelectorAll("button")].find((b) => /^Mes cartes/.test(b.textContent.trim()));
+      if (!mineTab) continue;
+      const active = [...mineTab.parentElement.children].find((b) => b.tagName === "BUTTON" && String(b.className).includes("border-b-2")) || null;
+      const heading = [...modal.querySelectorAll("p")].find((p) => /^Sélectionnées\s*\(/.test(p.textContent.trim()));
+      return { modal, bar, mineLabel, theirLabel, mineTab, active, friend: theirLabel.textContent.split(":")[0].trim(), selected: heading ? heading.parentElement : null };
+    }
+    return null;
+  }
+
+  function drawTradeDraft(tiles) {
+    const w = settings.badges ? tradeWindow() : null;
+    if (!w) {
+      tradeDraft = null;
+      document.querySelectorAll(".wme-draft").forEach((el) => el.remove());
+      return;
+    }
+    if (!tradeDraft || tradeDraft.modal !== w.modal || tradeDraft.friend !== w.friend) tradeDraft = { modal: w.modal, friend: w.friend, mine: [], theirs: [] };
+    if (w.active) {
+      const chosen = tiles.filter(([tile]) => w.selected && w.selected.contains(tile)).map(([tile, entry]) => {
+        const { rarity, shiny } = tileRarity(tile, entry);
+        return { id: entry.id, title: entry.title, rarity, shiny };
+      });
+      tradeDraft[w.active === w.mineTab ? "mine" : "theirs"] = chosen;
+    }
+    const side = (label, cards) => {
+      const [, count, coins] = TRADE_COUNTS.exec(label.textContent) || [];
+      let value = 0;
+      let missing = 0;
+      for (const c of cards) {
+        want(c.id, "urgent", c.rarity);
+        const p = priceOf(c, true);
+        if (Number.isFinite(p)) value += p;
+        else missing += 1;
+      }
+      return { value, missing, wb: countOf(coins), count: countOf(count), seen: cards.length };
+    };
+    const give = side(w.mineLabel, tradeDraft.mine);
+    const get = side(w.theirLabel, tradeDraft.theirs);
+    const total = (s) => s.value + s.wb;
+    const gap = total(get) - total(give);
+    const pct = total(give) > 0 ? Math.round((gap / total(give)) * 100) : null;
+    const unseen = (s, tab) => (s.count > s.seen ? ` (ouvre « ${tab} » pour compter ${s.count - s.seen} carte(s))` : "");
+    const lines = [
+      `Tu donnes ≈ ${wb(give.value)}${give.wb ? ` + ${wb(give.wb)} WB` : ""}${give.missing ? ` (${give.missing} sans prix)` : ""}${unseen(give, "Mes cartes")}`,
+      `Tu reçois ≈ ${wb(get.value)}${get.wb ? ` + ${wb(get.wb)} WB` : ""}${get.missing ? ` (${get.missing} sans prix)` : ""}${unseen(get, `Cartes de ${w.friend}`)}`,
+      Math.abs(gap) < 1 ? "Échange équilibré." : `${gap > 0 ? "En ta faveur" : "En sa faveur"} : ≈ ${wb(Math.abs(gap))}${pct !== null ? ` (${gap > 0 ? "+" : "−"}${Math.abs(pct)} % de ce que tu donnes)` : ""}.`,
+    ];
+    let el = w.bar.nextElementSibling && w.bar.nextElementSibling.classList.contains("wme-draft") ? w.bar.nextElementSibling : null;
+    if (!el) {
+      el = Object.assign(document.createElement("div"), { className: "wme-draft wme-trade" });
+      w.bar.after(el);
+    }
+    const text = lines.join("\n");
+    if (el.dataset.text !== text) {
+      el.dataset.text = text;
+      el.replaceChildren(...lines.map((line) => Object.assign(document.createElement("div"), { textContent: line })));
+      el.dataset.side = gap >= 0 ? "good" : "bad";
+    }
+    el.title = "Cartes choisies au prix moyen du site, dans leur rareté, plus les WB. Le site ne montre que les cartes de l'onglet ouvert : " +
+      "ouvre les deux onglets pour compter les deux côtés. L'offre part toujours avec le bouton du site.";
   }
 
   let badgeTimer = null;
@@ -1231,6 +1322,7 @@
     shownTiles = tiles.length;
     shownValue = tiles.reduce((sum, [tile, entry]) => sum + badge(tile, entry), 0);
     drawTrades(tiles);
+    drawTradeDraft(tiles);
   }
 
   // Le site est une application « une seule page » : il remplace des morceaux du DOM sans recharger. On redessine
