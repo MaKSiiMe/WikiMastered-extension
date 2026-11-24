@@ -44,6 +44,7 @@ const TABS = {
   page: { label: "Page", every: 2e3, view: pageView },
   collection: { label: "Collection", every: 10e3, view: collectionView },
   duplicates: { label: "Doublons", every: 10e3, view: duplicatesView },
+  filters: { label: "Filtres", every: 0, view: filtersView },
   packs: { label: "Paquets", every: 2e3, view: packsView },
   settings: { label: "Réglages", every: 0, view: settingsView },
 };
@@ -194,6 +195,48 @@ async function duplicatesView() {
       ...list.map((d) => h("tr", {}, h("td", {}, d.title), h("td", {}, d.kept),
         h("td", {}, d.extra + (d.locked ? ` (${d.locked} favori${d.locked > 1 ? "s" : ""})` : "")),
         h("td", { className: "num" }, d.value ? wb(d.value) : "—")))),
+  ];
+}
+
+// ------------------------------------------------------------------ Filtres (#19) : sur toute la collection, pas
+// seulement la page de 50 cartes du site. Formulaire construit une fois ; « Filtrer » relance la recherche.
+const RARITY_CODES = ["L", "UR", "SR", "R", "PC", "C"];
+let lastCriteria = { sort: "value-desc", price: "all", rarities: [] };
+
+async function filtersView() {
+  const c = lastCriteria;
+  const results = h("div", {});
+  const check = (key, label) => h("label", { className: "inline" }, h("input", { type: "checkbox", checked: Boolean(c[key]), on: { change: (e) => { c[key] = e.target.checked; } } }), ` ${label}`);
+  const chips = RARITY_CODES.map((r) => h("label", { className: "inline" }, h("input", { type: "checkbox", checked: c.rarities.includes(r),
+    on: { change: (e) => { c.rarities = e.target.checked ? [...c.rarities, r] : c.rarities.filter((x) => x !== r); } } }), ` ${r}`));
+  const text = h("input", { type: "search", value: c.text || "", placeholder: "mots du titre", className: "wide", on: { input: (e) => { c.text = e.target.value; } } });
+  const min = h("input", { type: "number", value: c.min ?? "", placeholder: "de", className: "small", on: { input: (e) => { c.min = e.target.value; } } });
+  const max = h("input", { type: "number", value: c.max ?? "", placeholder: "à", className: "small", on: { input: (e) => { c.max = e.target.value; } } });
+  const price = h("select", { on: { change: (e) => { c.price = e.target.value; range.hidden = c.price !== "range"; } } },
+    ...[["all", "Tous les prix"], ["never", "Jamais vendues (dans leur rareté)"], ["range", "Vendues entre…"]].map(([v, l]) => h("option", { value: v, selected: c.price === v }, l)));
+  const range = h("span", { hidden: c.price !== "range" }, " ", min, " et ", max, " WB");
+  const sort = h("select", { on: { change: (e) => { c.sort = e.target.value; } } },
+    ...[["value-desc", "Valeur décroissante"], ["value-asc", "Valeur croissante"], ["rarity", "Rareté"]].map(([v, l]) => h("option", { value: v, selected: c.sort === v }, l)));
+  const run = async () => {
+    results.replaceChildren(h("p", { className: "muted" }, "Recherche…"));
+    const reply = await ask("panel", { action: "filter", criteria: c });
+    if (!reply.ok) return results.replaceChildren(...error(reply));
+    const label = (i) => (i.state === "price" ? `${i.sure ? "" : "≈ "}${wb(i.price)}` : i.state === "never" ? "jamais vendue" : i.shiny ? "✦ ?" : "?");
+    results.replaceChildren(
+      h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${reply.items.length} premières)` : ""}`),
+      h("table", {}, h("tr", {}, h("th", {}, "Carte"), h("th", {}, "Rareté"), h("th", { className: "num" }, "Ex."), h("th", { className: "num" }, "Prix")),
+        ...reply.items.map((i) => h("tr", {}, h("td", {}, i.title), h("td", {}, i.rarity + (i.shiny ? " ✦" : "")),
+          h("td", { className: "num" }, fr(i.copies)), h("td", { className: "num" }, label(i))))),
+      h("p", { className: "muted" }, "« ? » : prix pas encore lu (onglet Collection pour lire les prix manquants)."));
+  };
+  return [
+    h("div", {}, check("duplicates", "Doublons"), check("noImage", "Sans image"), check("gif", "GIF")),
+    h("div", {}, ...chips),
+    text,
+    h("div", {}, price, range),
+    h("label", {}, "Trier par ", sort),
+    h("button", { className: "act", on: { click: run } }, "Filtrer"),
+    results,
   ];
 }
 

@@ -560,6 +560,50 @@ const WME = (() => {
     return { copies, distinct: byCard.size, value, unsure, unpriced, byRarity: order.map((r) => ({ rarity: r, ...byRarity[r] })), top, duplicates };
   }
 
+  /**
+   * Filtres de la collection (#19). rows : [[exemplaire, carte, rareté, nombre, favori, shiny, image]] (image : 0 sans
+   * image ou masquée, 1 image, 2 GIF, undefined inconnu) ; priceInfo(carte, rareté) -> { state: "price" | "never" |
+   * "unknown", avg?, sure? }. criteria : { duplicates, noImage, gif, rarities: [], text, price: "all" | "never" |
+   * "range", min, max, sort: "value-desc" | "value-asc" | "rarity" }. Une ligne par carte et par rareté.
+   * -> { count, items: [{ id, title, rarity, copies, shiny, image, price, sure, state }] } (300 premières)
+   */
+  function filterCollection(rows, titles, priceInfo, criteria = {}) {
+    const groups = new Map();
+    const perCard = new Map();
+    for (const [, id, rarity, count, , shiny, image] of rows) {
+      const n = Math.max(1, Number(count) || 1);
+      perCard.set(id, (perCard.get(id) || 0) + n);
+      const key = `${id}|${rarity}`;
+      const g = groups.get(key) || groups.set(key, { id, title: (titles && titles[id]) || id, rarity, copies: 0, shiny: false, image }).get(key);
+      g.copies += n;
+      if (shiny) g.shiny = true;
+    }
+    const words = String(criteria.text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").split(/\s+/).filter(Boolean);
+    const plain = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const rarities = new Set(criteria.rarities || []);
+    const min = Number.isFinite(Number(criteria.min)) && criteria.min !== "" ? Number(criteria.min) : -Infinity;
+    const max = Number.isFinite(Number(criteria.max)) && criteria.max !== "" ? Number(criteria.max) : Infinity;
+    const out = [];
+    for (const g of groups.values()) {
+      if (criteria.duplicates && perCard.get(g.id) < 2) continue;
+      if (criteria.noImage && g.image !== 0) continue;
+      if (criteria.gif && g.image !== 2) continue;
+      if (rarities.size && !rarities.has(g.rarity)) continue;
+      if (words.length && !words.every((w) => plain(g.title).includes(w))) continue;
+      const info = g.shiny ? { state: "unknown" } : priceInfo(g.id, g.rarity) || { state: "unknown" };
+      if (criteria.price === "never" && info.state !== "never") continue;
+      if (criteria.price === "range" && !(info.state === "price" && info.avg >= Math.min(min, max) && info.avg <= Math.max(min, max))) continue;
+      out.push({ ...g, state: info.state, price: info.state === "price" ? info.avg : null, sure: Boolean(info.sure) });
+    }
+    const value = (x) => (x.price === null ? null : x.price);
+    if (criteria.sort === "rarity") out.sort((a, b) => rank(b.rarity) - rank(a.rarity) || a.title.localeCompare(b.title));
+    else {
+      const sign = criteria.sort === "value-asc" ? 1 : -1;
+      out.sort((a, b) => (value(a) === null) - (value(b) === null) || sign * ((value(a) || 0) - (value(b) || 0)) || rank(b.rarity) - rank(a.rarity));
+    }
+    return { count: out.length, items: out.slice(0, 300) };
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -575,7 +619,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, sessionFromCookies, collectionSummary, filterCollection, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

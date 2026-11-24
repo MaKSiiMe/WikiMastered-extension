@@ -273,3 +273,23 @@ test("récap de chaque paquet (nouvelles, doublons, valeur) et paquets du jour",
   assert.equal(recap.last.doubles, 1);
   assert.deepEqual(recap.last.cards.map((c) => [c.title, c.isNew]), [["A", true], ["B", false], ["C", null]]);
 });
+
+test("filtres de la collection : critères cumulables, prix, tri par valeur", () => {
+  const rows = [
+    ["e1", "ana", "L", 1, 0, 0, 1], ["e2", "ana", "UR", 1, 0, 0, 1], ["e3", "gif", "R", 1, 0, 0, 2], ["e4", "vide", "C", 2, 0, 0, 0],
+    ["e5", "jamais", "PC", 1, 0, 0, 1],
+  ];
+  const titles = { ana: "Ana de Armas", gif: "Chat animé", vide: "Électrode", jamais: "Rien" };
+  const info = (id, r) => ({ "ana|L": { state: "price", avg: 9000, sure: true }, "ana|UR": { state: "price", avg: 4000, sure: false },
+    "gif|R": { state: "price", avg: 30, sure: true }, "jamais|PC": { state: "never" } })[`${id}|${r}`] || { state: "unknown" };
+  const f = (c) => WME.filterCollection(rows, titles, info, c).items.map((i) => `${i.id}:${i.rarity}`);
+  assert.deepEqual(f({}), ["ana:L", "ana:UR", "gif:R", "jamais:PC", "vide:C"]); // par valeur, sans prix à la fin
+  assert.deepEqual(f({ duplicates: true }), ["ana:L", "ana:UR", "vide:C"]); // ana en 2 raretés, vide en 2 exemplaires
+  assert.deepEqual(f({ noImage: true }), ["vide:C"]);
+  assert.deepEqual(f({ gif: true }), ["gif:R"]);
+  assert.deepEqual(f({ text: "electrode" }), ["vide:C"]); // accents et majuscules ignorés
+  assert.deepEqual(f({ price: "never" }), ["jamais:PC"]);
+  assert.deepEqual(f({ price: "range", min: 10, max: 5000 }), ["ana:UR", "gif:R"]);
+  assert.deepEqual(f({ rarities: ["L", "R"], sort: "value-asc" }), ["gif:R", "ana:L"]);
+  assert.equal(WME.filterCollection(rows, titles, info, { duplicates: true }).count, 3);
+});
