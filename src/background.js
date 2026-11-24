@@ -7,6 +7,7 @@
 // Messages reçus (chrome.runtime.sendMessage) :
 //   { type: "shared-get", ids, maxAge (s) }  -> { who, items: { id: { read_at, read_by, history } } }
 //   { type: "shared-put", items }            -> { who, stored, older, rejected }
+//   { type: "shared-changes", since (ms) }   -> { who, now, items: [[id, read_at]], more }
 //   { type: "shared-stats" }                 -> { who, fresh_cards, days }
 // En cas d'échec : { error }.
 const SHARED_KEY = "shared"; // { on, url, token }, écrit par le panneau
@@ -42,6 +43,8 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
     pending = call(`/v1/history?ids=${ids}&max_age=${Math.floor(Number(message.maxAge) || 21600)}`);
   } else if (message.type === "shared-put" && Array.isArray(message.items) && message.items.length) {
     pending = call("/v1/history", { method: "POST", body: JSON.stringify({ items: message.items.slice(0, 100) }) });
+  } else if (message.type === "shared-changes") {
+    pending = call(`/v1/changes?since=${Math.floor(Number(message.since) || 0)}`);
   } else if (message.type === "shared-stats") {
     pending = call("/v1/stats?days=7");
   } else {

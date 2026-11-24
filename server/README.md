@@ -22,6 +22,7 @@ Toutes avec `Authorization: Bearer <jeton>`.
 |---|---|
 | `GET /v1/history?ids=a,b,c&max_age=21600` | Lectures de moins de `max_age` secondes (6 h par défaut) pour au plus 100 cartes : `{ who, items: { "<id>": { read_at, read_by, history } } }`. |
 | `POST /v1/history` | Dépose au plus 100 lectures `{ items: [{ id, read_at (ms), history }] }`. Une lecture plus ancienne que celle gardée ne la remplace pas. -> `{ who, stored, older, rejected }`. |
+| `GET /v1/changes?since=<ms>` | Cartes lues depuis `since` (7 jours au plus) : seulement `[[card_id, read_at], …]`, les plus anciennes d'abord, 5000 par réponse (`more` : il en reste). Le client ne demande ensuite que les historiques qui l'intéressent. |
 | `GET /v1/stats?days=7` | Compteurs par jour et par participant, et nombre de cartes lues depuis moins de 6 h. |
 
 ## Mise en route (une fois)

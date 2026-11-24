@@ -1,7 +1,7 @@
 // Règles du cache partagé (server/src/logic.js) : `npm test`, sans Cloudflare.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cleanItem, day, MAX_IDS, parseIds, parseMaxAge, participant } from "../server/src/logic.js";
+import { cleanItem, day, MAX_IDS, parseIds, parseMaxAge, parseSince, participant } from "../server/src/logic.js";
 
 test("ids : valides, sans doublon, au plus 100", () => {
   assert.deepEqual(parseIds("a1, b-2,a1,,../x,c_3"), ["a1", "b-2", "c_3"]);
@@ -39,4 +39,12 @@ test("participant : nom du jeton, sinon null", () => {
 
 test("jour UTC des compteurs", () => {
   assert.equal(day(Date.parse("2026-11-24T23:59:00Z")), "2026-11-24");
+});
+
+test("changes : départ borné aux 7 derniers jours et pas dans le futur", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(parseSince(now - 1000, now), now - 1000);
+  assert.equal(parseSince(undefined, now), now - 7 * 86400e3);
+  assert.equal(parseSince(0, now), now - 7 * 86400e3);
+  assert.equal(parseSince(now + 5000, now), now);
 });
