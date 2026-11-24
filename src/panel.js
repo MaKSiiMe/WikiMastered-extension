@@ -364,7 +364,73 @@ async function settingsView() {
     h("h3", {}, "Cache des prix"),
     h("button", { className: "act", on: { click: async (e) => { if (confirm("Oublier tous les prix et les relire sur le site ?")) { await ask("reread"); e.target.textContent = "Prix oubliés : relecture en cours"; } } } },
       "Relire tous les prix"),
+    h("h3", {}, "Données gardées par l'extension"),
+    await dataSection(),
   ];
+}
+
+// ------------------------------------------------------------------ Données (#27) : taille, vider, sauvegarder.
+// Tout vit dans chrome.storage.local, propre à l'extension. La sauvegarde garde ce qui ne se relit pas sur le site
+// (réglages, récap des paquets, courbe de valeur, relevé des refus) ; le cache des prix et la collection se relisent.
+const DATA = [
+  { key: "prices-v2", label: "Cache des prix", clear: true, backup: false },
+  { key: "wmCollection", label: "Collection (relue toutes les 12 h)", clear: true, backup: false },
+  { key: "wmOwned", label: "Cartes possédées ou non (« ✓ »)", clear: true, backup: false },
+  { key: "wmPulls", label: "Récap des paquets", clear: false, backup: true },
+  { key: "wmPullBaseline", label: "Compteurs repris de « Prix moyen collection »", clear: false, backup: true },
+  { key: "wmValueHistory", label: "Courbe de la valeur (une mesure par jour)", clear: false, backup: true },
+  { key: "wmLimitLog", label: "Relevé des refus du site", clear: true, backup: true },
+  { key: "settings", label: "Réglages", clear: false, backup: true },
+  { key: "shared", label: "Prix partagés : adresse et jeton", clear: false, backup: true },
+];
+const kb = (bytes) => (bytes < 1024 ? `${bytes} o` : `${(bytes / 1024).toLocaleString("fr-FR", { maximumFractionDigits: bytes < 10240 ? 1 : 0 })} Ko`);
+
+async function dataSection() {
+  const all = await chrome.storage.local.get(DATA.map((d) => d.key));
+  const size = (key) => (all[key] === undefined ? 0 : new TextEncoder().encode(JSON.stringify(all[key])).length);
+  const status = h("p", { className: "muted" });
+  const rows = DATA.map((d) => h("tr", {}, h("td", {}, d.label), h("td", { className: "num" }, kb(size(d.key))),
+    h("td", {}, d.clear && all[d.key] !== undefined ? h("button", { className: "act small", on: { click: async () => {
+      if (!confirm(`Vider « ${d.label} » ?`)) return;
+      await chrome.storage.local.remove(d.key);
+      if (d.key === "prices-v2") await chrome.storage.local.remove("wmSharedSync");
+      status.textContent = "Vidé. Recharge la page du site pour qu'elle reparte de zéro.";
+      draw(true);
+    } } }, "Vider") : "")));
+  const total = DATA.reduce((n, d) => n + size(d.key), 0);
+
+  const exportData = async () => {
+    const data = await chrome.storage.local.get(DATA.filter((d) => d.backup).map((d) => d.key));
+    const file = new Blob([JSON.stringify({ wikimastered: chrome.runtime.getManifest().version, at: new Date().toISOString(), data }, null, 1)], { type: "application/json" });
+    const link = h("a", { href: URL.createObjectURL(file), download: `wikimastered-${new Date().toISOString().slice(0, 10)}.json` });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    status.textContent = "Sauvegarde téléchargée. Elle contient ton jeton de prix partagés : garde-la pour toi.";
+  };
+  const picker = h("input", { type: "file", accept: "application/json,.json", hidden: true, on: { change: async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      const allowed = new Set(DATA.filter((d) => d.backup).map((d) => d.key));
+      const data = Object.fromEntries(Object.entries((parsed && parsed.data) || {}).filter(([k]) => allowed.has(k)));
+      if (!Object.keys(data).length) throw new Error("aucune donnée WikiMastered dans ce fichier");
+      if (!confirm(`Remplacer ${Object.keys(data).length} donnée(s) par celles de la sauvegarde du ${String(parsed.at || "?").slice(0, 10)} ?`)) return;
+      await chrome.storage.local.set(data);
+      status.textContent = "Sauvegarde restaurée. Recharge la page du site pour qu'elle la prenne en compte.";
+      draw(true);
+    } catch (err) {
+      status.textContent = `Restauration impossible : ${err.message}`;
+    }
+  } } });
+  return h("div", {},
+    h("table", {}, ...rows, h("tr", {}, h("td", {}, h("b", {}, "Total")), h("td", { className: "num" }, kb(total)), h("td", {}))),
+    h("button", { className: "act", on: { click: exportData } }, "Sauvegarder (JSON)"), " ",
+    h("button", { className: "act", on: { click: () => picker.click() } }, "Restaurer…"), picker,
+    h("p", { className: "muted" }, "La sauvegarde garde ce qui ne se relit pas sur le site : réglages, récap des paquets, courbe de valeur, " +
+      "relevé des refus. Le cache des prix et la collection se relisent d'eux-mêmes."),
+    status);
 }
 
 // Réglages des prix partagés (src/background.js, server/).
