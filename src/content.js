@@ -11,18 +11,23 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, wb } = WME;
+  const { rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
   const PRICE_TTL_MS = 6 * 3600e3;      // une cote est redemandée après 6 h (comme le bot)
   const FAILED_TTL_MS = 10 * 60e3;      // une cote illisible est réessayée après 10 min
-  const RETRIES = 3;                    // erreur passagère du site (403, 5xx, réseau) : 3 essais avant « ? »
+  const RETRIES = 3;                    // erreur passagère du site (autre 403, 5xx, réseau) : 3 essais avant « ? »
   const RETRY_PAUSE_MS = 15e3;          // … espacés de 15 s
   const PRICE_KEEP_MS = 7 * 24 * 3600e3; // cotes de plus de 7 jours oubliées
   const REQUEST_GAP_MS = 500;           // au moins 0,5 s entre deux requêtes de l'extension (~30 s pour 50 cartes)…
   const REQUEST_JITTER_MS = 300;        // … plus un délai au hasard, pour ne pas taper en rythme régulier
-  const RATE_LIMIT_PAUSE_MS = 60e3;     // le site répond 429 (trop de requêtes) : pause d'une minute
+  const RATE_LIMIT_PAUSE_MS = 60e3;     // le site répond 429 (trop de requêtes) sans Retry-After : pause d'une minute
+  const LIMIT_PAUSE_MS = 10 * 60e3;     // 403 automation_limit ou vérification demandée : pause de 10 min
+  const READ_BUDGET = 80;               // lectures d'historique de prix par fenêtre de 10 min, tous onglets confondus :
+  const READ_WINDOW_MS = 10 * 60e3;     // le site bloque vers 90-100 (et le bot WikiMastered lit sur le même compte)
+  const READS_KEY = "wmPriceReads";     // dates des lectures récentes, partagées entre onglets (readBudget)
+  const PAUSE_KEY = "wmPricePause";     // { until, reason } : pause demandée par le site, partagée entre onglets
   const PULLS_KEY = "wmPulls";          // journal des paquets ouverts, à la main ou en auto (récap de la fenêtre)
   const PULLS_MAX = 10000;              // ~50 000 cartes, ~3 Mo : au-delà, les paquets les plus anciens sont oubliés
   const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
@@ -51,22 +56,67 @@
   // ------------------------------------------------------------------ requêtes au site, une à la fois
   let lastRequest = 0;
   let pausedUntil = 0;
+  let pauseReason = "";
+  let recentReads = 0; // lectures dans la fenêtre de 10 min, à la dernière vérification du budget (fenêtre)
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  // Une pause demandée par le site vaut pour tous les onglets : le quota est celui du compte, pas de l'onglet.
+  function pauseAll(ms, reason) {
+    const until = Date.now() + ms;
+    if (until <= pausedUntil) return;
+    pausedUntil = until;
+    pauseReason = reason;
+    store.set(PAUSE_KEY, { until, reason });
+  }
+
+  // Réserve une lecture dans le budget partagé (READ_BUDGET par READ_WINDOW_MS), en attendant s'il est épuisé. Le
+  // verrou (Web Locks, commun aux onglets du site) empêche deux onglets de prendre la même place.
+  async function takeReadSlot() {
+    for (;;) {
+      const reserve = async () => {
+        const now = Date.now();
+        const budget = readBudget(await store.get(READS_KEY, []), now, READ_BUDGET, READ_WINDOW_MS);
+        recentReads = budget.stamps.length;
+        if (budget.wait > 0) return budget.wait;
+        await store.set(READS_KEY, [...budget.stamps, now]);
+        recentReads += 1;
+        return 0;
+      };
+      let wait;
+      try {
+        wait = navigator.locks ? await navigator.locks.request("wme-price-reads", reserve) : await reserve();
+      } catch (_) {
+        wait = await reserve(); // verrou indisponible (content script Firefox…) : réservation sans verrou
+      }
+      if (wait === 0) return;
+      await sleep(Math.min(wait + 50, 30e3)); // relu au plus toutes les 30 s : un autre onglet a pu libérer de la place
+    }
+  }
+
   async function get(path) {
+    await takeReadSlot();
     const wait = Math.max(pausedUntil, lastRequest + REQUEST_GAP_MS + Math.random() * REQUEST_JITTER_MS) - Date.now();
     if (wait > 0) await sleep(wait);
     lastRequest = Date.now();
     const response = await siteFetch(location.origin + path, { credentials: "include" });
-    if (response.status === 429) {
-      pausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS;
-      throw Object.assign(new Error("trop de requêtes (429), pause d'une minute"), { rateLimited: true });
+    if (response.ok) return response.json();
+    const body = await response.text().catch(() => "");
+    const limit = siteLimit(response.status, body);
+    if (limit) {
+      // Le site demande d'arrêter : tout le monde attend, et la carte n'est pas un échec (elle sera relue).
+      const retryAfter = Number(response.headers.get("Retry-After")) * 1000;
+      const [ms, reason] = {
+        verification: [LIMIT_PAUSE_MS, "vérification demandée par le site"],
+        automation: [LIMIT_PAUSE_MS, "quota de lectures du site atteint"],
+        rate: [retryAfter > 0 ? retryAfter : RATE_LIMIT_PAUSE_MS, "le site limite les requêtes"],
+      }[limit];
+      pauseAll(ms, reason);
+      throw Object.assign(new Error(`${reason} (HTTP ${response.status})`), { rateLimited: true });
     }
     if (response.status === 403 || response.status >= 500) {
       throw Object.assign(new Error(`HTTP ${response.status}`), { transient: true });
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
+    throw new Error(`HTTP ${response.status}`);
   }
 
   // ------------------------------------------------------------------ cotes
@@ -459,6 +509,8 @@
   // Plusieurs onglets du site ouverts : chacun garde le journal à jour quand un autre l'écrit.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
+    const pause = changes[PAUSE_KEY] && changes[PAUSE_KEY].newValue;
+    if (pause && pause.until > pausedUntil) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
     if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
   });
@@ -504,6 +556,10 @@
       known: Object.values(prices).filter((p) => fresh(p) && !p.failed).length,
       waiting: queue.size,
       paused: pausedUntil > Date.now(),
+      pauseReason,
+      pausedUntil,
+      reads: recentReads,
+      readBudget: READ_BUDGET,
       trades: shownTrades,
       pulls: pullRecap(pullLog, priceOf, (pullBaselineEntry && pullBaselineEntry.counts) || {}),
     });
@@ -513,6 +569,8 @@
   const ready = (async () => {
     settings = { ...settings, ...(await store.get("settings", {})) };
     prices = await store.get(PRICES_KEY, {});
+    const pause = await store.get(PAUSE_KEY, null);
+    if (pause && pause.until > Date.now()) [pausedUntil, pauseReason] = [pause.until, pause.reason || ""];
     const storedPulls = await store.get(PULLS_KEY, null);
     if (Array.isArray(storedPulls)) {
       // Premier format (essais de la 0.4, packs auto seulement) : converti une fois au format compact.

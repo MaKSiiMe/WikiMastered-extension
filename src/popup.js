@@ -37,7 +37,9 @@ function render(state) {
     h("p", {}, `Valeur des cartes affichées : ≈ ${wb(state.value)} WB`),
     ...state.trades.map((t) => h("p", { className: "trade" }, t)),
     h("p", { className: "muted" }, `${state.known} prix en mémoire · ${state.waiting} en attente` +
-      (state.paused ? " · pause : le site limite les requêtes" : "")),
+      ` · ${state.reads}/${state.readBudget} lectures sur 10 min`),
+    state.paused && h("p", { className: "muted" }, `Pause : ${state.pauseReason || "le site limite les requêtes"}, ` +
+      `jusqu'à ${new Date(state.pausedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}.`),
     h("label", {},
       h("input", { type: "checkbox", checked: state.badges, on: { change: async (e) => render(await ask("badges", { on: e.target.checked })) } }),
       " Badges de prix sur les cartes"),

@@ -255,6 +255,38 @@ const WME = (() => {
     };
   }
 
+  /**
+   * Budget de lectures du site : au plus `limit` lectures par fenêtre glissante de `windowMs`. `stamps` = dates des
+   * lectures récentes (tous onglets confondus). Le site coupe l'historique des prix au-delà de ~90-100 lectures par
+   * 10 min (403 automation_limit, ~10 min de blocage) : mieux vaut attendre un peu que d'être bloqué.
+   * -> { wait: ms avant la prochaine lecture (0 : tout de suite), stamps: les dates encore dans la fenêtre, triées }
+   */
+  function readBudget(stamps, now, limit, windowMs) {
+    const recent = (Array.isArray(stamps) ? stamps : [])
+      .filter((t) => Number.isFinite(t) && t <= now && now - t < windowMs)
+      .sort((a, b) => a - b);
+    const wait = recent.length < limit ? 0 : recent[recent.length - limit] + windowMs - now;
+    return { wait: Math.max(0, wait), stamps: recent };
+  }
+
+  /**
+   * Pourquoi le site refuse une requête, d'après son statut et son corps (texte ou JSON) :
+   * « verification » (human_verification_required : un humain doit faire la vérification), « automation »
+   * (automation_limit : quota dépassé, ~10 min), « rate » (429 : trop vite, voir Retry-After), ou null.
+   */
+  function siteLimit(status, body) {
+    let text = "";
+    try {
+      text = typeof body === "string" ? body : JSON.stringify(body ?? "");
+    } catch (_) {
+      text = "";
+    }
+    if (/human_verification_required/i.test(text)) return "verification";
+    if (/automation_limit/i.test(text)) return "automation";
+    if (status === 429) return "rate";
+    return null;
+  }
+
   /** 1250 -> « 1 250 », 12500 -> « 12,5 k » : court, pour un badge. */
   function wb(n) {
     if (!Number.isFinite(n)) return "?";
@@ -262,7 +294,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, wb };
+  return { RARITIES, rank, norm, quotes, currentWeek, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

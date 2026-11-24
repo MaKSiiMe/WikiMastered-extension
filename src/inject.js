@@ -28,18 +28,20 @@
     }
   });
 
-  // Détection stricte d'un défi anti-robot : statut 403 ou propriété explicite de vérification/défi dans un objet JSON.
-  // Évite de déclencher un faux positif sur un champ générique contenant le mot « verify » dans une réponse normale.
-  function looksLikeChallenge(status, payload) {
-    if (status === 403) return true;
-    if (!payload || typeof payload !== "object") return false;
-    return Boolean(
-      payload.challenge ||
-      payload.turnstile ||
-      payload.requires_verification ||
-      payload.requiresVerification ||
-      payload.need_verify
-    );
+  // Vérification humaine demandée par le site : son signal est « human_verification_required » dans le corps de la
+  // réponse (relevé dans la doc d'API de LeadOn/Wikimasters-Toolbox et le bot AirKyzzZ/wikimasters-bot). Un 403 seul
+  // ne suffit pas : il peut aussi vouloir dire « quota dépassé » (automation_limit).
+  const looksLikeChallenge = (raw) => /human_verification_required/i.test(raw || "");
+
+  // Limites de l'ouverture de paquets : trop vite (429, ou rate_limited avec retry_after, une date ISO) ou limite
+  // quotidienne (rate_limit_daily). -> { retryAt (date en ms, ou null), daily } ; null si la réponse n'en parle pas.
+  function packLimit(response, parsed) {
+    const daily = Boolean(parsed && parsed.rate_limit_daily);
+    if (response.status !== 429 && !(parsed && (parsed.rate_limited || daily))) return null;
+    const fromBody = Date.parse((parsed && parsed.retry_after) || "");
+    const fromHeader = Number(response.headers.get("Retry-After")) * 1000;
+    const retryAt = Number.isFinite(fromBody) ? fromBody : fromHeader > 0 ? Date.now() + fromHeader : null;
+    return { retryAt, daily };
   }
 
   const originalFetch = window.fetch;
@@ -68,13 +70,21 @@
           let parsed = null;
           try { parsed = JSON.parse(raw); } catch (_) {}
 
-          if (looksLikeChallenge(response.status, parsed)) {
+          if (looksLikeChallenge(raw)) {
             // « need-click » signale à src/click.js qu'une ouverture UI depuis /pulls est requise.
             forward({ source: "wme-click", type: "need-click", url, status: response.status });
             return;
           }
 
-          if (response.ok) {
+          const limit = packLimit(response, parsed);
+          if (limit) {
+            // « pack-limited » : src/click.js ne reclique pas avant retryAt (ou demain, si c'est la limite du jour).
+            forward({ source: "wme-click", type: "pack-limited", url, ...limit });
+            return;
+          }
+
+          // Pas de carte (plus de paquet : 400 avec packs_remaining à 0, ou réponse inattendue) : rien n'a été ouvert.
+          if (response.ok && parsed && Array.isArray(parsed.cards) && parsed.cards.length > 0) {
             // « pack-opened » indique que la requête d'ouverture a abouti côté site, quel que soit le schéma JSON.
             // La réponse suit (data) : src/content.js y cherche les cartes tirées pour le récap des paquets.
             forward({ source: "wme-click", type: "pack-opened", url, data: parsed });

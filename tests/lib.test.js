@@ -119,3 +119,23 @@ test("point de départ repris de l'autre extension : sans double compte, les L+ 
   assert.equal(WME.pullBaseline(null, log), null);
   assert.equal(WME.pullBaseline({ counts: "?" }, log), null);
 });
+
+test("budget de lectures : fenêtre glissante, attente jusqu'à la sortie de la plus ancienne", () => {
+  const W = 600e3;
+  assert.deepEqual(WME.readBudget([], 1000, 3, W), { wait: 0, stamps: [] });
+  // Trop vieilles, futures ou illisibles : oubliées.
+  assert.deepEqual(WME.readBudget([1, 5000, "x", null], 700e3, 3, W).stamps, []);
+  const full = WME.readBudget([300e3, 100e3, 200e3], 400e3, 3, W);
+  assert.equal(full.wait, 300e3); // la lecture de t=100 s sort de la fenêtre à t=700 s
+  assert.deepEqual(full.stamps, [100e3, 200e3, 300e3]);
+  assert.equal(WME.readBudget([100e3, 200e3, 300e3], 400e3, 4, W).wait, 0);
+});
+
+test("refus du site : vérification, quota, trop vite", () => {
+  assert.equal(WME.siteLimit(403, { error: "human_verification_required" }), "verification");
+  assert.equal(WME.siteLimit(403, '{"error":"automation_limit"}'), "automation");
+  assert.equal(WME.siteLimit(429, ""), "rate");
+  assert.equal(WME.siteLimit(403, { error: "forbidden" }), null);
+  assert.equal(WME.siteLimit(500, null), null);
+});
+
