@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, RECENT_WEEKS, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -518,7 +518,8 @@
   function note(data) {
     for (const c of cardsIn(data)) {
       const key = norm(c.title);
-      const entry = seen.get(key) || { id: c.id, title: c.title, rarities: new Set(), shiny: false };
+      const entry = seen.get(key) || { id: c.id, title: c.title, rarities: new Set(), shiny: false, url: "" };
+      if (c.url) entry.url = c.url;
       if (c.rarity) entry.rarities.add(c.rarity);
       if (c.shiny) entry.shiny = true;
       seen.set(key, entry);
@@ -534,6 +535,10 @@
     }
     if (event.data.kind === "price-history") {
       fromSite(event.data.url, event.data.data);
+      return;
+    }
+    if (event.data.kind === "sales") {
+      fromSiteSales(event.data.url, event.data.data);
       return;
     }
     note(event.data.data);
@@ -1005,9 +1010,47 @@
   const FICHE_MODAL = "div.fixed.inset-0";
   const shortDay = (iso) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
 
-  function ficheLines(entry) {
+  // Petite courbe des moyennes par semaine (#14), en SVG (posé en éléments, jamais en HTML).
+  function trendSvg(trend) {
+    if (!Array.isArray(trend) || trend.length < 2) return null;
+    const values = trend.map(([, avg]) => avg);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 100 20");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("class", "wme-trend");
+    const line = document.createElementNS(ns, "polyline");
+    line.setAttribute("points", values.map((v, i) => `${(i / (values.length - 1)) * 100},${18 - ((v - min) / (max - min || 1)) * 16}`).join(" "));
+    for (const [k, v] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "1.5"], ["vector-effect", "non-scaling-stroke"]]) line.setAttribute(k, v);
+    const title = document.createElementNS(ns, "title");
+    title.textContent = trend.map(([start, avg]) => `${shortDay(start)} : ${wb(avg)}`).join(" · ");
+    svg.append(title, line);
+    return svg;
+  }
+
+  // Les 5 dernières ventes d'une carte, recopiées quand le site les lit (onglet Marché de la fiche) : #15.
+  const recentSales = new Map(); // « carte|rareté » -> [prix]
+  function fromSiteSales(url, data) {
+    const match = /\/api\/marketplace\/cards\/([^/?#]+)\/sales/.exec(String(url));
+    if (!match || !data || !Array.isArray(data.recent)) return;
+    const id = decodeURIComponent(match[1]);
+    const asked = (new URL(String(url), location.origin).searchParams.get("rarity") || "").toUpperCase();
+    const groups = {};
+    for (const sale of data.recent) {
+      const rarity = String((sale && sale.rarity) || asked || "").toUpperCase();
+      if (rank(rarity) < 0 || !Number.isFinite(Number(sale.final_price))) continue;
+      (groups[rarity] ||= []).push(Number(sale.final_price));
+    }
+    for (const [rarity, list] of Object.entries(groups)) recentSales.set(`${id}|${rarity}`, list);
+    scheduleBadges();
+  }
+
+  // Une ligne par rareté vendue : texte, courbe, et médiane des dernières ventes quand le site les a lues.
+  function ficheRows(entry) {
     const entryPrices = prices[entry.id];
-    if (!entryPrices || !usable(entryPrices)) return ["Prix en cours de lecture…"];
+    if (!entryPrices || !usable(entryPrices)) return { rows: [{ text: "Prix en cours de lecture…" }], age: "" };
     const rows = Object.entries(entryPrices.q).sort(([a], [b]) => rank(b) - rank(a)).map(([rarity, q]) => {
       const sure = reliable(q, settings.minWeekSales);
       const when = q.week >= currentWeek() ? "cette semaine" : `la semaine du ${shortDay(q.week)}`;
@@ -1018,12 +1061,24 @@
         const pct = Math.round((q.avg / q.prev - 1) * 100);
         parts.push(`${pct > 0 ? "+" : ""}${pct} % sur la semaine d'avant`);
       }
-      return parts.join(" · ");
+      const stats = quartiles(recentSales.get(`${entry.id}|${rarity}`));
+      if (stats) parts.push(`${stats.n} dernière(s) vente(s) : médiane ${wb(stats.median)}${stats.n >= 3 ? `, Q1–Q3 ${wb(stats.q1)} – ${wb(stats.q3)}` : ""}`);
+      return { text: parts.join(" · "), trend: q.trend };
     });
-    if (!rows.length) rows.push("Jamais vendue.");
+    if (!rows.length) rows.push({ text: "Jamais vendue." });
     const age = `Relevé il y a ${ago(Date.now() - entryPrices.at)}` +
       (entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "") + ".";
-    return [...rows, age];
+    return { rows, age };
+  }
+
+  // ↻ (#17) : relit tout de suite le prix de cette carte sur le site (pas le cache partagé), en tête de file.
+  function rereadCard(id) {
+    delete prices[id];
+    refused.delete(id);
+    sharedAsked.set(id, Date.now());
+    want(id, "urgent");
+    savePricesSoon();
+    scheduleBadges();
   }
 
   function drawFiches() {
@@ -1042,15 +1097,29 @@
         const anchor = title.parentElement && title.parentElement !== modal ? title.parentElement : title;
         anchor.after(block);
       }
+      const { rows, age } = ficheRows(entry);
       const own = owned.get(entry.id);
-      const lines = [...ficheLines(entry), own === undefined ? "" : own ? "Tu as déjà cette carte." : "Tu n'as pas cette carte."]
-        .filter(Boolean);
-      const text = lines.join("\n");
-      if (block.dataset.text !== text) {
-        block.dataset.text = text;
-        block.replaceChildren(...lines.map((line) => Object.assign(document.createElement("div"),
-          { textContent: line, className: /^(Relevé|Tu )/.test(line) ? "wme-note" : "" })));
-      }
+      const notes = [age, own === undefined ? "" : own ? "Tu as déjà cette carte." : "Tu n'as pas cette carte."].filter(Boolean);
+      const text = [...rows.map((r) => r.text + (r.trend ? r.trend.length : "")), ...notes].join("\n");
+      if (block.dataset.text === text) continue;
+      block.dataset.text = text;
+      const div = (props, ...children) => {
+        const el = Object.assign(document.createElement("div"), props);
+        el.append(...children.filter(Boolean));
+        return el;
+      };
+      const wiki = entry.url || `https://fr.wikipedia.org/wiki/${encodeURIComponent(entry.title.replace(/ /g, "_"))}`;
+      const reread = Object.assign(document.createElement("button"), { type: "button", className: "wme-link", textContent: "↻ Relire le prix" });
+      reread.addEventListener("click", (event) => {
+        event.stopPropagation();
+        rereadCard(entry.id);
+      });
+      const link = Object.assign(document.createElement("a"), { href: wiki, target: "_blank", rel: "noopener noreferrer", className: "wme-link", textContent: "Wikipédia ↗" });
+      link.addEventListener("click", (event) => event.stopPropagation());
+      block.replaceChildren(
+        ...rows.map((r) => div({ className: "wme-row" }, div({ textContent: r.text }), trendSvg(r.trend))),
+        ...notes.map((line) => div({ className: "wme-note", textContent: line })),
+        div({ className: "wme-actions" }, reread, link));
     }
   }
 

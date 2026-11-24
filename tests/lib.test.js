@@ -16,7 +16,7 @@ test("le prix moyen est celui de la dernière semaine avec des ventes, comme sur
     },
   };
   const now = new Date("2026-11-24T12:00:00Z");
-  assert.deepEqual(WME.quotes(history, now), { L: { avg: 9000, count: 8, week: "2026-11-16", sales12: 12, low4: 8000, high4: 9000, prev: 8000 } }); // SR sans prix, XX inconnue
+  assert.deepEqual(WME.quotes(history, now), { L: { avg: 9000, count: 8, week: "2026-11-16", sales12: 12, low4: 8000, high4: 9000, prev: 8000, trend: [["2026-11-09", 8000], ["2026-11-16", 9000]] } }); // SR sans prix, XX inconnue
   assert.deepEqual(WME.quotes(null), {});
 });
 
@@ -54,8 +54,8 @@ test("les ventes de /sales redonnent l'historique de price-history quand elles s
   assert.deepEqual(history.by_rarity.C.weekly, [{ start: "2026-11-16", avg: 300, min: 300, max: 300, count: 1 }]);
   assert.deepEqual(history.by_rarity.R.monthly, [{ start: "2026-11-01", avg: 1101, min: 1000, max: 1201, count: 2 }]);
   assert.deepEqual(WME.quotes(history, new Date("2026-11-24T12:00:00Z")), {
-    R: { avg: 1101, count: 2, week: "2026-11-23", sales12: 2, low4: 1000, high4: 1201, prev: null },
-    C: { avg: 300, count: 1, week: "2026-11-16", sales12: 1, low4: 300, high4: 300, prev: null },
+    R: { avg: 1101, count: 2, week: "2026-11-23", sales12: 2, low4: 1000, high4: 1201, prev: null, trend: [["2026-11-23", 1101]] },
+    C: { avg: 300, count: 1, week: "2026-11-16", sales12: 1, low4: 300, high4: 300, prev: null, trend: [["2026-11-16", 300]] },
   });
   assert.equal(WME.totalSales(history), 3);
   assert.equal(WME.salesComplete({ recent }), true);
@@ -314,4 +314,10 @@ test("marché : bonne affaire (fin proche, 25 % sous la cote) ou surcoté (50 % 
   assert.equal(WME.auctionDeal({ ...a, endAt: now + 3600e3 }, 1000, true, now), null); // fin trop loin
   assert.deepEqual(WME.auctionDeal({ ...a, current: 0, base: 300 }, 200, true, now), { kind: "high", pct: 50 });
   assert.equal(WME.auctionDeal({ ...a, shiny: true }, 1000, true, now), null);
+});
+
+test("médiane et quartiles des dernières ventes", () => {
+  assert.deepEqual(WME.quartiles([500, 100, 300, 200, 400]), { median: 300, q1: 200, q3: 400, n: 5 });
+  assert.deepEqual(WME.quartiles([10, 20]), { median: 15, q1: 12.5, q3: 17.5, n: 2 });
+  assert.equal(WME.quartiles([]), null);
 });

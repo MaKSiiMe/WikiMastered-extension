@@ -46,10 +46,13 @@ const WME = (() => {
       const highs = recent4.map((p) => Number(p.max ?? p.avg)).filter((n) => Number.isFinite(n) && n > 0);
       const before = sold.filter((p) => Number(p.avg) > 0 && String(p.start || "") < String(latest.start || ""))
         .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")))[0];
+      // Courbe (#14) : moyennes des semaines avec ventes sur les 12 dernières semaines, de la plus ancienne à la plus récente.
+      const trend = sold.filter((p) => String(p.start || "") >= cutoff && Number(p.avg) > 0)
+        .sort((a, b) => String(a.start || "").localeCompare(String(b.start || ""))).map((p) => [String(p.start), Number(p.avg)]);
       out[rarity] = {
         avg: Number(latest.avg), count: Number(latest.count), week: String(latest.start || ""), sales12,
         low4: lows.length ? Math.min(...lows) : null, high4: highs.length ? Math.max(...highs) : null,
-        prev: before ? Number(before.avg) : null,
+        prev: before ? Number(before.avg) : null, trend,
       };
     }
     return out;
@@ -142,6 +145,7 @@ const WME = (() => {
       title: String(raw.wikipedia_title),
       rarity: String(rarity || raw.rarity || "").toUpperCase(),
       shiny: Boolean(shiny ?? raw.is_shiny),
+      url: typeof raw.wikipedia_url === "string" && /^https:\/\/[a-z-]+\.wikipedia\.org\//.test(raw.wikipedia_url) ? raw.wikipedia_url : "",
     };
   }
 
@@ -659,6 +663,18 @@ const WME = (() => {
     return null;
   }
 
+  /** Médiane et quartiles (interpolation linéaire) d'une liste de prix (#15). -> { median, q1, q3, n } ou null. */
+  function quartiles(values) {
+    const v = (Array.isArray(values) ? values : []).map(Number).filter((n) => Number.isFinite(n) && n >= 0).sort((a, b) => a - b);
+    if (!v.length) return null;
+    const at = (p) => {
+      const i = (v.length - 1) * p;
+      const lo = Math.floor(i);
+      return v[lo] + (v[Math.min(lo + 1, v.length - 1)] - v[lo]) * (i - lo);
+    };
+    return { median: at(0.5), q1: at(0.25), q3: at(0.75), n: v.length };
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -674,7 +690,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, quartiles, auctionsIn, auctionDeal, sessionFromCookies, collectionSummary, filterCollection, wishlistSummary, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

@@ -9,11 +9,11 @@
   window.__wmeHooked = true;
 
   // Toutes les réponses de l'API du site : src/lib.js y cherche les cartes, où qu'elles soient (collection, marché,
-  // vitrines…). L'historique des prix d'une fiche ouverte (onglet « Marché ») est recopié à part : src/content.js
-  // reprend ce prix sans requête. Les ventes (/sales) ne contiennent pas de carte.
+  // vitrines…). L'historique des prix et les dernières ventes d'une fiche ouverte (onglet « Marché ») sont recopiés
+  // à part : src/content.js en reprend le prix et la médiane sans requête.
   const WATCHED = /\/api\//i;
-  const IGNORED = /\/sales(?:[/?#]|$)/i;
   const PRICE_HISTORY = /\/api\/marketplace\/cards\/[^/?#]+\/price-history/i;
+  const SALES = /\/api\/marketplace\/cards\/[^/?#]+\/sales(?:[/?#]|$)/i;
 
   // Ouverture d'un paquet : POST /api/packs/open (relevé dans l'onglet Réseau du site).
   const PACK_OPEN_URL = /\/api\/packs\/open(?:[/?#]|$)/i;
@@ -74,11 +74,12 @@
       const url = typeof input === "string" ? input : (input && input.url) || String(input);
       const method = String((args[1] && args[1].method) || (input && input.method) || "GET").toUpperCase();
 
-      if (method === "GET" && response.ok && WATCHED.test(url) && !IGNORED.test(url)) {
+      if (method === "GET" && response.ok && WATCHED.test(url)) {
         // clone() : le corps d'une réponse ne se lit qu'une fois, le site doit pouvoir lire l'original.
         response.clone().json()
           .then((data) => {
-            const message = { source: "wme-page", url, data, ...(PRICE_HISTORY.test(url) ? { kind: "price-history" } : {}) };
+            const kind = PRICE_HISTORY.test(url) ? "price-history" : SALES.test(url) ? "sales" : "";
+            const message = { source: "wme-page", url, data, ...(kind ? { kind } : {}) };
             buffer.push(message);
             if (buffer.length > BUFFER_MAX) buffer.shift();
             forward(message);
