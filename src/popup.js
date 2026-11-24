@@ -36,7 +36,7 @@ function render(state) {
     h("p", {}, `Cartes avec un badge : ${state.tiles}`),
     h("p", {}, `Valeur des cartes affichées : ≈ ${wb(state.value)} WB`),
     ...state.trades.map((t) => h("p", { className: "trade" }, t)),
-    h("p", { className: "muted" }, `${state.known} prix à jour · ${state.old} ancien(s), grisés · ${state.waiting} en attente`),
+    h("p", { className: "muted" }, `${state.known} prix à jour · ${state.old} de plus de 24 h (grisés) · ${state.waiting} en attente`),
     h("p", { className: "muted" }, `Lectures sur 10 min : ${state.reads.history}/${state.readBudget} historiques · ` +
       `${state.reads.sales}/${state.readBudget} ventes`),
     ...state.pauses.map((p) => h("p", { className: "muted" }, `Pause : ${p.reason}, jusqu'à ` +
