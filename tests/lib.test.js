@@ -133,7 +133,7 @@ test("journal des paquets : compact, prix figés, récap de C à L, à la main e
   log = WME.addPull(log, { at: 2, auto: false, cards: [
     { id: "c", title: "Paris", rarity: "C", shiny: false }, { id: "b", title: "Rome", rarity: "L", shiny: true }] }, 10);
   log = WME.addPull(log, { at: 3, auto: true, cards: [] }, 10); // réponse sans carte lisible : le paquet compte
-  assert.deepEqual(log.packs[0].cards, [["a", "R", 0, null], ["b", "L", 0, null]]);
+  assert.deepEqual(log.packs[0].cards, [["a", "R", 0, null, null], ["b", "L", 0, null, null]]);
 
   assert.equal(WME.settlePullPrices(log, priceOf), true);
   assert.equal(WME.settlePullPrices(log, priceOf), false); // déjà figés (le shiny reste sans prix)
@@ -257,4 +257,19 @@ test("une mesure par jour de la valeur, 365 jours au plus", () => {
   let h = {};
   for (let d = 1; d <= 5; d++) h = WME.addDailyValue(h, `2026-11-0${d}`, d * 100.4, 3);
   assert.deepEqual(h, { "2026-11-03": 301, "2026-11-04": 402, "2026-11-05": 502 });
+});
+
+test("récap de chaque paquet (nouvelles, doublons, valeur) et paquets du jour", () => {
+  const day = (h) => new Date(2026, 10, 24, h).getTime(); // 24/11, heure locale
+  let log = WME.emptyPullLog();
+  log = WME.addPull(log, { at: day(1) - 864e5, auto: false, cards: [{ id: "x", title: "X", rarity: "C" }] }, 100); // la veille
+  log = WME.addPull(log, { at: day(10), auto: true, cards: [
+    { id: "a", title: "A", rarity: "L", isNew: true }, { id: "b", title: "B", rarity: "C", isNew: false }, { id: "c", title: "C", rarity: "C" },
+  ] }, 100);
+  const recap = WME.pullRecap(log, (c) => ({ a: 900, b: 5 })[c.id] ?? null, {}, day(12));
+  assert.deepEqual(recap.today, { packs: 1, cards: 3, byRarity: { L: 1, C: 2 } });
+  assert.equal(recap.last.value, 905);
+  assert.equal(recap.last.fresh, 1);
+  assert.equal(recap.last.doubles, 1);
+  assert.deepEqual(recap.last.cards.map((c) => [c.title, c.isNew]), [["A", true], ["B", false], ["C", null]]);
 });

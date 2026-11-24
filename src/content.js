@@ -1089,7 +1089,8 @@
     await ready; // le journal enregistré d'abord : sinon ce paquet l'écraserait
     const clickState = typeof window.__wmeClickState === "function" ? window.__wmeClickState() : null;
     const auto = Boolean(clickState && Date.now() - clickState.autoClickAt <= AUTO_PULL_WINDOW_MS);
-    const cards = cardsIn(event.data.data);
+    // Nouvelle ou doublon : d'après la possession connue avant ce paquet (exacte depuis la lecture de la collection).
+    const cards = cardsIn(event.data.data).map((c) => ({ ...c, isNew: owned.has(c.id) ? !owned.get(c.id) : undefined }));
     for (const c of cards) owned.set(c.id, true);
     pullLog = addPull(pullLog, { at: Date.now(), auto, cards }, PULLS_MAX);
     store.set(PULLS_KEY, pullLog);
