@@ -1,0 +1,14 @@
+{
+  "name": "wikimastered-share",
+  "private": true,
+  "type": "module",
+  "description": "Cache de prix partagé entre participants (Cloudflare Worker + D1).",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "license": "MIT"
+}

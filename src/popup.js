@@ -58,6 +58,7 @@ function render(state) {
       }),
       " Tentative de déblocage marché (/collection)"),
     clickStatus(state),
+    sharedLive(state.shared),
     pullsRecap(state.pulls),
     h("button", { on: { click: async () => render(await ask("reread")) } }, "Relire tous les prix"),
     h("p", { className: "muted" },
@@ -100,6 +101,69 @@ function clickStatus(state) {
   ].filter(Boolean);
   return h("p", { className: "muted" }, `Automatisation : ${info.status} · ${notes.join(" · ")}`);
 }
+
+// Prix partagés, côté page : ce que cet onglet a reçu du serveur et y a déposé.
+function sharedLive(shared) {
+  if (!shared || !shared.on) return null;
+  if (shared.error) return h("p", { className: "muted" }, `Prix partagés : ${shared.error}`);
+  return h("p", { className: "muted" },
+    `Prix partagés${shared.who ? ` (${shared.who})` : ""} : ${shared.served} reçu(s) · ${shared.pushed} déposé(s)`);
+}
+
+// Réglages des prix partagés (src/background.js, server/). Construits une seule fois, hors de `main` qui est
+// redessiné chaque seconde : un champ en cours de saisie serait effacé.
+const SHARED_KEY = "shared";
+async function setupShared() {
+  const box = document.getElementById("shared");
+  const { [SHARED_KEY]: cfg = {} } = await chrome.storage.local.get(SHARED_KEY);
+  const status = h("p", { className: "muted" });
+  const on = h("input", { type: "checkbox", checked: Boolean(cfg.on) });
+  const url = h("input", { type: "url", value: cfg.url || "", placeholder: "https://….workers.dev" });
+  const token = h("input", { type: "password", value: cfg.token || "", placeholder: "jeton", autocomplete: "off" });
+  const fields = h("div", { hidden: !cfg.on }, url, token, h("button", { on: { click: save } }, "Enregistrer"));
+
+  const check = async () => {
+    const stats = await chrome.runtime.sendMessage({ type: "shared-stats" }).catch((e) => ({ error: e.message }));
+    status.textContent = !stats || stats.error ? `Serveur : ${(stats && stats.error) || "pas de réponse"}`
+      : `Connecté en ${stats.who} · ${stats.fresh_cards} carte(s) lue(s) depuis moins de 6 h dans le cache`;
+  };
+
+  // L'autorisation d'appeler le serveur doit être demandée tout de suite au clic (le navigateur l'exige) : la
+  // vérification de l'adresse est donc synchrone, et l'enregistrement part en même temps que la demande.
+  function save() {
+    const value = { on: on.checked, url: url.value.trim().replace(/\/+$/, ""), token: token.value.trim() };
+    if (!value.on) {
+      chrome.storage.local.set({ [SHARED_KEY]: value });
+      status.textContent = "Partage désactivé.";
+      return;
+    }
+    let origin = "";
+    try {
+      const parsed = new URL(value.url);
+      if (parsed.protocol === "https:" && parsed.hostname.endsWith(".workers.dev")) origin = parsed.origin;
+    } catch (_) {
+      // adresse illisible
+    }
+    if (!origin || !value.token) {
+      status.textContent = !origin ? "Adresse attendue : https://….workers.dev" : "Jeton manquant.";
+      return;
+    }
+    const granting = chrome.permissions.request({ origins: [`${origin}/*`] });
+    chrome.storage.local.set({ [SHARED_KEY]: value }); // avant la réponse : Firefox ferme la fenêtre pendant la question
+    granting.then((granted) => {
+      if (granted) check();
+      else status.textContent = "Autorisation refusée : l'extension ne peut pas joindre ce serveur.";
+    }, (e) => { status.textContent = `Autorisation impossible : ${e.message}`; });
+  }
+
+  on.addEventListener("change", () => {
+    fields.hidden = !on.checked;
+    if (!on.checked) save();
+  });
+  box.replaceChildren(h("label", {}, on, " Prix partagés avec d'autres joueurs (test)"), fields, status);
+  if (cfg.on) check();
+}
+setupShared();
 
 // Les compteurs suivent l'arrivée des prix tant que la fenêtre est ouverte.
 const refresh = async () => render(await ask("state"));

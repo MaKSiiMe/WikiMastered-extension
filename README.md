@@ -20,6 +20,12 @@ Le détail, case par case, avec les idées reprises des autres outils : [ROADMAP
 
 Le site ne donne pas de prix dans sa liste de cartes. Sur la fiche d'une carte, il demande l'historique de ses ventes (`/api/marketplace/cards/{id}/price-history`) et calcule lui-même, dans le navigateur, la moyenne de la dernière semaine qui a des ventes. L'extension fait la même requête et le même calcul : une requête par carte, comme le site, gardée 6 h. Une page de 50 cartes jamais vues prend une trentaine de secondes la première fois, puis s'affiche aussitôt ; au-delà de 80 cartes nouvelles en 10 minutes, les suivantes attendent que le budget se libère.
 
+### Prix partagés (essai, désactivé par défaut)
+
+Le quota du site est par compte : seul, on ne lit pas plus de 80 cartes par 10 minutes. Avec **Prix partagés** (fenêtre de l'extension), plusieurs joueurs et leurs bots mettent leurs lectures en commun sur un petit serveur ([`server/`](server/), un Cloudflare Worker) : avant de lire une carte sur le site, l'extension demande au serveur si quelqu'un l'a lue depuis moins de 6 h, en une requête pour toute la page ; chaque lecture faite sur le site y est déposée. Chacun continue de lire seulement ce qu'il regarde, dans son propre quota. L'infobulle d'un badge dit qui a relevé le prix (« par pote-bot »). Seuls l'identifiant de la carte et l'historique des prix partent vers le serveur : ni pseudo, ni cookie, ni collection.
+
+Pour l'activer : coche la case, colle l'adresse du serveur (`https://….workers.dev`) et ton jeton, puis **Enregistrer** ; le navigateur demande l'autorisation de joindre ce serveur. Mise en route du serveur : [server/README.md](server/README.md).
+
 ## Installation
 
 ### Chrome, Brave, Edge, Opera
@@ -77,6 +83,8 @@ flowchart LR
     C -->|"GET price-history"| A
     C -->|"badges + panneau"| D["Page affichée (DOM)"]
     C <-->|"prix, réglages"| ST[("chrome.storage.local")]
+    C <-->|"prix partagés (option)"| B["src/background.js"]
+    B <-->|"GET/POST /v1/history"| W["server/ (Cloudflare Worker)"]
 ```
 
 | Fichier | Rôle |
@@ -85,11 +93,13 @@ flowchart LR
 | [`src/inject.js`](src/inject.js) | Tourne **dans** la page (`"world": "MAIN"`), avant le site. Il enveloppe `window.fetch` pour recopier les réponses de l'API ; `lib.js` y cherche les cartes, où qu'elles soient. Il signale aussi à `click.js` chaque ouverture de paquet, réussie ou bloquée par une vérification. Il ne modifie aucune réponse. |
 | [`src/click.js`](src/click.js) | L'automatisation par clic : deux boucles (paquets, marché) qui relisent leurs réglages à chaque tour et se passent le relais d'une page à l'autre par `chrome.storage.local`. Son état s'affiche dans la fenêtre de l'extension. |
 | [`src/content.js`](src/content.js) | Le *content script* : il voit la page (le DOM) mais vit dans un monde à part, invisible du site. Il reçoit les réponses copiées, demande les prix, pose les badges et le bilan des échanges, et répond à la fenêtre de l'extension. |
+| [`src/background.js`](src/background.js) | Le script d'arrière-plan, seul à parler au serveur de prix partagés : le content script n'a pas le droit d'appeler un autre site que wiki-masters.com. |
+| [`server/`](server/) | Le serveur de prix partagés (Cloudflare Worker + base D1), optionnel : voir [server/README.md](server/README.md). |
 | [`src/lib.js`](src/lib.js) | Les calculs purs (prix moyen, cartes et échanges d'une réponse, bilan d'un échange, récap des paquets) : aucun accès au navigateur, donc testables simplement. |
 | [`src/popup.html`](src/popup.html), [`src/popup.js`](src/popup.js) | La fenêtre ouverte par l'icône (`action` dans le manifeste). Elle ne voit pas la page : elle demande l'état au content script de l'onglet par `chrome.tabs.sendMessage`. |
 | [`src/styles.css`](src/styles.css) | Le style des badges et du bilan, tout préfixé `wme-`. |
 | [`icons/`](icons/) | L'icône, dessinée par [`tools/icons.py`](tools/icons.py) (Python sans dépendance). |
-| [`tests/lib.test.js`](tests/lib.test.js) | Les tests de `lib.js`, avec le lanceur de tests intégré à Node. |
+| [`tests/`](tests/) | Les tests de `lib.js` et des règles du serveur (`server/src/logic.js`), avec le lanceur de tests intégré à Node. |
 
 Points à retenir :
 
@@ -103,7 +113,7 @@ Points à retenir :
 ## Développement
 
 ```sh
-npm test         # tests de src/lib.js (Node 20 ou plus, aucune dépendance à installer)
+npm test         # tests de src/lib.js et server/src/logic.js (Node 20 ou plus, aucune dépendance à installer)
 npm run build    # dist/wikimastered-extension-<version>.zip
 ```
 

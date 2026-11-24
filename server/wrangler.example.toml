@@ -1,0 +1,14 @@
+# Copie ce fichier en wrangler.toml (ignoré par git) et mets-y l'identifiant de ta base D1
+# (`npx wrangler d1 create wikimastered-share` l'affiche).
+name = "wikimastered-share"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "wikimastered-share"
+database_id = "<identifiant de la base D1>"
+
+# Purge quotidienne des vieilles lectures (scheduled dans src/worker.js).
+[triggers]
+crons = ["17 4 * * *"]
