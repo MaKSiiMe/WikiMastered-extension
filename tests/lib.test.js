@@ -436,12 +436,12 @@ test("une vente isolée hors de proportion ne fait pas le prix : prix habituel, 
   assert.equal(WME.quotes({ by_rarity: { R: { weekly: [{ start: "2026-11-23", avg: 8067, count: 1 }] } } }, now).R.avg, 8067);
 });
 
-test("défausse en masse : cote au plus N, jamais un shiny, un favori ni un exemplaire étiqueté", () => {
+test("défausse en masse : cote au plus N, jamais un favori ; étiquetées seulement si autorisées ; shiny = L", () => {
   const rows = [
     ["a1", "A", "C", 1, 0, 0, 1], // A, seule : gardée avec keepOne
     ["b1", "B", "C", 1, 0, 0, 1], ["b2", "B", "PC", 1, 0, 0, 1], // B en double : la C part, la PC (plus rare) reste
     ["c1", "C", "C", 1, 1, 0, 1], // favori
-    ["d1", "D", "C", 1, 0, 1, 1], // shiny
+    ["d1", "D", "C", 1, 0, 1, 1], // shiny : comptée comme une L, pas avec C
     ["e1", "E", "C", 1, 0, 0, 1], // étiquetée
     ["f1", "F", "C", 1, 0, 0, 1], ["f2", "F", "UR", 1, 0, 0, 1], // F : C pas chère, l'UR (rareté non choisie) reste
     ["g1", "G", "C", 1, 0, 0, 1], // trop chère
@@ -455,8 +455,18 @@ test("défausse en masse : cote au plus N, jamais un shiny, un favori ni un exem
   const r = WME.bulkDiscardPicks(rows, { e1: ["t"] }, rules, info);
   assert.deepEqual(r.picks.map((p) => p.copy).sort(), ["b1", "f1"]);
   assert.equal(r.unknown, 1);
-  assert.equal(r.protected, 4);
+  assert.equal(r.protected, 3);
   const all = WME.bulkDiscardPicks(rows, { e1: ["t"] }, { ...rules, keepOne: false, neverSold: true }, info);
   assert.deepEqual(all.picks.map((p) => p.copy).sort(), ["a1", "b1", "b2", "f1", "i1"]);
+  // Étiquettes autorisées : toutes (« all ») ou une liste ; une carte doit n'avoir que des étiquettes autorisées.
+  assert.ok(WME.bulkDiscardPicks(rows, { e1: ["t"] }, { ...rules, keepOne: false, tags: "all" }, info).picks.some((p) => p.copy === "e1"));
+  assert.ok(WME.bulkDiscardPicks(rows, { e1: ["t"] }, { ...rules, keepOne: false, tags: ["t"] }, info).picks.some((p) => p.copy === "e1"));
+  assert.ok(!WME.bulkDiscardPicks(rows, { e1: ["t", "u"] }, { ...rules, keepOne: false, tags: ["t"] }, info).picks.some((p) => p.copy === "e1"));
+  // Shiny : comptée avec L (pas avec C), au prix de la carte ordinaire ; « garder un exemplaire » garde la shiny.
+  const shiny = [["s1", "S", "L", 1, 0, 1, 1], ["s2", "S", "L", 1, 0, 0, 1], ["t1", "T", "C", 1, 0, 1, 1]];
+  const low = () => ({ state: "price", avg: 1 });
+  assert.deepEqual(WME.bulkDiscardPicks(shiny, {}, { rarities: ["L"], maxPrice: 5, keepOne: true }, low).picks.map((p) => p.copy), ["s2"]);
+  assert.deepEqual(WME.bulkDiscardPicks(shiny, {}, { rarities: ["L"], maxPrice: 5 }, low).picks.map((p) => p.copy).sort(), ["s1", "s2", "t1"]);
+  assert.deepEqual(WME.bulkDiscardPicks(shiny, {}, { rarities: ["C"], maxPrice: 5 }, low).picks, []);
   assert.deepEqual(WME.bulkDiscardPicks(rows, {}, { ...rules, maxPrice: "" }, info).picks, []); // sans cote : rien
 });

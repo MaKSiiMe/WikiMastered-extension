@@ -1,6 +1,9 @@
 // Nouveautés de chaque version, pour l'onglet « Nouveautés » du panneau (#28). option : réglage qu'un bouton
 // « Activer » allume (message au content script). La plus récente d'abord ; garder les 10 dernières versions.
 const WME_NEWS = [
+  { version: "0.18.0", items: [
+    { text: "Défausse en masse : les cartes étiquetées peuvent partir, étiquette par étiquette ou toutes (« Tout sélectionner ») ; une shiny compte comme une L, au prix de la carte ordinaire, marquée ✦ dans l'aperçu." },
+  ] },
   { version: "0.17.0", items: [
     { text: "Collection : défausse en masse, comme le bot. Raretés et cote maximum au choix, aperçu des cartes, puis confirmation ; jamais une shiny, un favori ni une carte étiquetée. Option : garder un exemplaire de chaque carte." },
   ] },
@@ -38,10 +41,5 @@ const WME_NEWS = [
     { text: "Correctif : les onglets Filtres et Souhaits, et la synchronisation des prix partagés, marchent de nouveau (cassés depuis la 0.9.2)." },
     { text: "Filtres : la collection d'un autre joueur (avec « seulement celles que je n'ai pas ») et tes étiquettes." },
     { text: "Échanges : bilan pendant que tu composes une offre, et détail des cartes d'un échange." },
-  ] },
-  { version: "0.10.0", items: [
-    { text: "Fiche d'une carte : courbe des moyennes par semaine, médiane des dernières ventes, bouton ↻ Relire le prix, lien Wikipédia." },
-    { text: "Images Wikipédia pour les cartes sans image (option, coupée par défaut).", option: "images" },
-    { text: "Nouveautés : ce panneau, après chaque mise à jour." },
   ] },
 ];

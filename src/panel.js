@@ -432,7 +432,7 @@ async function bulkDiscardBox() {
     return bulkBox;
   }
   const { wmBulkDiscard } = await chrome.storage.local.get(["wmBulkDiscard"]);
-  const r = { rarities: ["C", "PC"], maxPrice: null, keepOne: true, neverSold: false, ...(wmBulkDiscard || {}) };
+  const r = { rarities: ["C", "PC"], maxPrice: null, keepOne: true, neverSold: false, tags: [], ...(wmBulkDiscard || {}) };
   const save = () => chrome.storage.local.set({ wmBulkDiscard: r });
   const result = h("div", {});
   const status = h("p", { className: "muted" });
@@ -441,6 +441,34 @@ async function bulkDiscardBox() {
   const check = (key, label) => h("label", {}, h("input", { type: "checkbox", checked: Boolean(r[key]),
     on: { change: (e) => { r[key] = e.target.checked; save(); result.replaceChildren(); } } }), label);
   let following = false;
+  // Étiquettes qui n'empêchent pas la défausse : aucune par défaut, une liste, ou toutes (« all »).
+  const tagBox = h("div", {});
+  let tagNames = [];
+  const drawTags = () => {
+    const all = r.tags === "all";
+    const chosen = all ? [] : r.tags.map((id) => [id, (tagNames.find(([t]) => t === id) || [id, id])[1]]);
+    const pick = h("select", { on: { change: () => {
+      if (pick.value === "-all") r.tags = "all";
+      else if (pick.value) r.tags = [...(all ? [] : r.tags), pick.value];
+      save();
+      result.replaceChildren();
+      drawTags();
+    } } },
+    h("option", { value: "" }, all ? "Toutes les étiquettes" : chosen.length ? "Ajouter une étiquette…" : "Aucune (cartes étiquetées gardées)"),
+    ...(all ? [] : tagNames.filter(([id]) => !r.tags.includes(id)).map(([id, name]) => h("option", { value: id }, name))),
+    !all && tagNames.length ? h("option", { value: "-all" }, "Tout sélectionner") : null);
+    const remove = (id) => { r.tags = id === "-all" ? [] : r.tags.filter((x) => x !== id); save(); result.replaceChildren(); drawTags(); };
+    const chips = all ? [["-all", "Toutes les étiquettes"]] : chosen;
+    fill(tagBox, h("label", {}, "Défausser aussi les cartes étiquetées ", pick),
+      chips.length ? h("div", {}, ...chips.map(([id, name]) => h("span", { className: "chip" }, name,
+        h("button", { title: "Retirer", ariaLabel: `Retirer ${name}`, on: { click: () => remove(id) } }, "×")))) : null,
+      chips.length ? h("p", { className: "muted" }, "Une carte part seulement si toutes ses étiquettes sont dans cette liste.") : null);
+  };
+  ask("panel", { action: "tags", source: "me" }).then((reply) => {
+    tagNames = reply.ok ? Object.entries(reply.tags || {}).sort(([, a], [, b]) => a.localeCompare(b, "fr")) : [];
+    if (Array.isArray(r.tags)) r.tags = r.tags.filter((id) => tagNames.some(([t]) => t === id));
+    drawTags();
+  });
   const follow = async () => {
     if (following) return;
     following = true;
@@ -478,9 +506,9 @@ async function bulkDiscardBox() {
     } } }, `Défausser ces ${fr(reply.count)} carte(s)`);
     result.replaceChildren(
       h("p", {}, h("b", {}, `${fr(reply.count)} carte(s) à défausser, +${fr(reply.count)} WB`)),
-      h("p", { className: "muted" }, `Gardées : ${fr(reply.protected)} favori, shiny ou étiquetée` +
+      h("p", { className: "muted" }, `Gardées : ${fr(reply.protected)} en favori, étiquetée ou en plusieurs exemplaires` +
         (reply.unknown ? ` ; ${fr(reply.unknown)} au prix pas encore connu (bouton « Lire les prix manquants » ou pages de ta collection, puis relance)` : "") + "."),
-      reply.sample.length ? h("table", {}, ...reply.sample.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
+      reply.sample.length ? h("table", {}, ...reply.sample.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity, c.shiny)),
         h("td", { className: "num" }, c.price === null ? "jamais vendue" : wb(c.price))))) : null,
       reply.count > reply.sample.length ? h("p", { className: "muted" }, `Les ${reply.sample.length} plus chères affichées.`) : null,
       go);
@@ -494,11 +522,12 @@ async function bulkDiscardBox() {
         result.replaceChildren();
       } } }), " ", rar(code)))),
     h("label", {}, "Cote au plus ", max, " WB"),
-    check("keepOne", " Garder au moins un exemplaire de chaque carte (le plus rare)"),
+    tagBox,
+    check("keepOne", " Garder au moins un exemplaire de chaque carte (le plus rare, la shiny avant la L)"),
     check("neverSold", " Défausser aussi les cartes jamais vendues dans leur rareté"),
     h("button", { className: "act", on: { click: preview } }, "Voir les cartes"),
     result, status,
-    h("p", { className: "muted" }, "Jamais une shiny, un favori ni une carte étiquetée. Prix : celui du badge, dans la rareté de la carte."));
+    h("p", { className: "muted" }, "Jamais un favori. Une shiny compte comme une L, au prix de la carte ordinaire (le site n'a pas de prix shiny) : marquée ✦ dans l'aperçu. Prix : celui du badge, dans la rareté de la carte."));
   bulkBox.follow = follow;
   follow();
   return bulkBox;
