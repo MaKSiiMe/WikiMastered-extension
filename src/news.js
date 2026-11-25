@@ -1,6 +1,9 @@
 // Nouveautés de chaque version, pour l'onglet « Nouveautés » du panneau (#28). option : réglage qu'un bouton
 // « Activer » allume (message au content script). La plus récente d'abord ; garder les 10 dernières versions.
 const WME_NEWS = [
+  { version: "0.17.0", items: [
+    { text: "Collection : défausse en masse, comme le bot. Raretés et cote maximum au choix, aperçu des cartes, puis confirmation ; jamais une shiny, un favori ni une carte étiquetée. Option : garder un exemplaire de chaque carte." },
+  ] },
   { version: "0.16.0", items: [
     { text: "Prix faussé : quand une vente isolée hors de proportion fait la semaine (15 septembre SR vendue 8 067 au lieu de ~40), le badge affiche le prix habituel marqué « ⚠ », avec un contour orange ; le chiffre du site reste au survol." },
   ] },
@@ -41,5 +44,4 @@ const WME_NEWS = [
     { text: "Images Wikipédia pour les cartes sans image (option, coupée par défaut).", option: "images" },
     { text: "Nouveautés : ce panneau, après chaque mise à jour." },
   ] },
-  { version: "0.9.4", items: [{ text: "Marché : « −34 % » bonne affaire et « +50 % » surcoté à côté du prix.", option: "deals" }] },
 ];

@@ -435,3 +435,28 @@ test("une vente isolée hors de proportion ne fait pas le prix : prix habituel, 
   // Une seule semaine de ventes : rien à comparer.
   assert.equal(WME.quotes({ by_rarity: { R: { weekly: [{ start: "2026-11-23", avg: 8067, count: 1 }] } } }, now).R.avg, 8067);
 });
+
+test("défausse en masse : cote au plus N, jamais un shiny, un favori ni un exemplaire étiqueté", () => {
+  const rows = [
+    ["a1", "A", "C", 1, 0, 0, 1], // A, seule : gardée avec keepOne
+    ["b1", "B", "C", 1, 0, 0, 1], ["b2", "B", "PC", 1, 0, 0, 1], // B en double : la C part, la PC (plus rare) reste
+    ["c1", "C", "C", 1, 1, 0, 1], // favori
+    ["d1", "D", "C", 1, 0, 1, 1], // shiny
+    ["e1", "E", "C", 1, 0, 0, 1], // étiquetée
+    ["f1", "F", "C", 1, 0, 0, 1], ["f2", "F", "UR", 1, 0, 0, 1], // F : C pas chère, l'UR (rareté non choisie) reste
+    ["g1", "G", "C", 1, 0, 0, 1], // trop chère
+    ["h1", "H", "C", 1, 0, 0, 1], // prix inconnu
+    ["i1", "I", "C", 1, 0, 0, 1], // jamais vendue
+    ["j1", "J", "C", 2, 0, 0, 1], // ligne de 2 exemplaires
+  ];
+  const prices = { A: 1, B: 2, C: 1, D: 1, E: 1, F: 3, G: 50 };
+  const info = (id) => (id === "H" ? { state: "unknown" } : id === "I" ? { state: "never" } : { state: "price", avg: prices[id] ?? 1 });
+  const rules = { rarities: ["C", "PC"], maxPrice: 5, keepOne: true, neverSold: false };
+  const r = WME.bulkDiscardPicks(rows, { e1: ["t"] }, rules, info);
+  assert.deepEqual(r.picks.map((p) => p.copy).sort(), ["b1", "f1"]);
+  assert.equal(r.unknown, 1);
+  assert.equal(r.protected, 4);
+  const all = WME.bulkDiscardPicks(rows, { e1: ["t"] }, { ...rules, keepOne: false, neverSold: true }, info);
+  assert.deepEqual(all.picks.map((p) => p.copy).sort(), ["a1", "b1", "b2", "f1", "i1"]);
+  assert.deepEqual(WME.bulkDiscardPicks(rows, {}, { ...rules, maxPrice: "" }, info).picks, []); // sans cote : rien
+});

@@ -418,7 +418,90 @@ async function collectionView(first) {
     h("h3", {}, "Mes cartes les plus chères"),
     h("table", {}, ...sum.top.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
       h("td", { className: "num" }, `${c.sure ? "" : "≈ "}${wb(c.price)}`)))),
+    await bulkDiscardBox(),
   ];
+}
+
+// Défausse en masse (comme DISCARD_MAX_VALUE du bot) : raretés, cote au plus N WB, puis « Voir les cartes » et
+// « Défausser ». Règles gardées d'une ouverture à l'autre ; la défausse continue panneau fermé (src/content.js).
+// Construit une fois : l'onglet se redessine toutes les 10 s sans effacer l'aperçu ni la saisie.
+let bulkBox = null;
+async function bulkDiscardBox() {
+  if (bulkBox) {
+    bulkBox.follow();
+    return bulkBox;
+  }
+  const { wmBulkDiscard } = await chrome.storage.local.get(["wmBulkDiscard"]);
+  const r = { rarities: ["C", "PC"], maxPrice: null, keepOne: true, neverSold: false, ...(wmBulkDiscard || {}) };
+  const save = () => chrome.storage.local.set({ wmBulkDiscard: r });
+  const result = h("div", {});
+  const status = h("p", { className: "muted" });
+  const max = h("input", { type: "number", min: 0, step: 1, value: r.maxPrice ?? "", placeholder: "ex. 2", className: "small wide-small",
+    on: { change: () => { r.maxPrice = max.value === "" ? null : Math.max(0, Math.round(Number(max.value))); save(); result.replaceChildren(); } } });
+  const check = (key, label) => h("label", {}, h("input", { type: "checkbox", checked: Boolean(r[key]),
+    on: { change: (e) => { r[key] = e.target.checked; save(); result.replaceChildren(); } } }), label);
+  let following = false;
+  const follow = async () => {
+    if (following) return;
+    following = true;
+    try {
+      await followLoop();
+    } finally {
+      following = false;
+    }
+  };
+  const followLoop = async () => {
+    for (;;) {
+      const reply = await ask("panel", { action: "bulkStatus" });
+      if (!reply.ok || !document.body.contains(status)) return;
+      const j = reply.job;
+      status.textContent = j.running ? `Défausse en cours : ${fr(j.done)} / ${fr(j.total)}…`
+        : j.total ? `${fr(j.done)} carte(s) défaussée(s), +${fr(j.done)} WB${j.error ? ` ; arrêtée : ${j.error}` : "."}` : "";
+      if (!j.running) return;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  };
+  const preview = async () => {
+    if (r.maxPrice === null) { result.replaceChildren(h("p", { className: "warn" }, "Choisis une cote maximum.")); return; }
+    result.replaceChildren(h("p", { className: "muted" }, "Recherche…"));
+    const reply = await ask("panel", { action: "bulkPreview", rules: r });
+    if (!reply.ok) { result.replaceChildren(h("p", { className: "warn" }, reply.error)); return; }
+    const go = h("button", { className: "act", disabled: !reply.count || reply.job.running, on: { click: async () => {
+      if (!await dialog({ title: "Défausse en masse",
+        lines: [`${fr(reply.count)} carte(s) défaussée(s) contre 1 WB chacune (+${fr(reply.count)} WB).`,
+          "Une carte défaussée disparaît de ta collection : c'est définitif."],
+        check: "J'ai compris : les cartes défaussées sont perdues.", ok: "Défausser" })) return;
+      go.disabled = true;
+      const started = await ask("panel", { action: "bulkDiscard", rules: r });
+      if (!started.ok) { status.textContent = started.error; return; }
+      follow();
+    } } }, `Défausser ces ${fr(reply.count)} carte(s)`);
+    result.replaceChildren(
+      h("p", {}, h("b", {}, `${fr(reply.count)} carte(s) à défausser, +${fr(reply.count)} WB`)),
+      h("p", { className: "muted" }, `Gardées : ${fr(reply.protected)} favori, shiny ou étiquetée` +
+        (reply.unknown ? ` ; ${fr(reply.unknown)} au prix pas encore connu (bouton « Lire les prix manquants » ou pages de ta collection, puis relance)` : "") + "."),
+      reply.sample.length ? h("table", {}, ...reply.sample.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
+        h("td", { className: "num" }, c.price === null ? "jamais vendue" : wb(c.price))))) : null,
+      reply.count > reply.sample.length ? h("p", { className: "muted" }, `Les ${reply.sample.length} plus chères affichées.`) : null,
+      go);
+  };
+  bulkBox = h("div", { className: "box" },
+    h("h3", {}, "Défausse en masse"),
+    h("div", {}, h("span", { className: "muted" }, "Raretés : "), ...RARITY_CODES.map((code) => h("label", { className: "inline" },
+      h("input", { type: "checkbox", checked: r.rarities.includes(code), on: { change: (e) => {
+        r.rarities = e.target.checked ? [...r.rarities, code] : r.rarities.filter((x) => x !== code);
+        save();
+        result.replaceChildren();
+      } } }), " ", rar(code)))),
+    h("label", {}, "Cote au plus ", max, " WB"),
+    check("keepOne", " Garder au moins un exemplaire de chaque carte (le plus rare)"),
+    check("neverSold", " Défausser aussi les cartes jamais vendues dans leur rareté"),
+    h("button", { className: "act", on: { click: preview } }, "Voir les cartes"),
+    result, status,
+    h("p", { className: "muted" }, "Jamais une shiny, un favori ni une carte étiquetée. Prix : celui du badge, dans la rareté de la carte."));
+  bulkBox.follow = follow;
+  follow();
+  return bulkBox;
 }
 
 // ------------------------------------------------------------------ Filtres (#19) : sur toute la collection, pas
