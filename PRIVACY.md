@@ -11,8 +11,7 @@ Uniquement sur wiki-masters.com, avec ta session déjà ouverte sur le site :
 - les réponses que le site envoie à ta page (cartes affichées, enchères, échanges), pour savoir quelles cartes sont à l'écran ;
 - l'historique des prix et les dernières ventes d'une carte (les mêmes routes que l'onglet « Marché » de la fiche d'une carte) ;
 - ta collection, ta liste de souhaits et tes étiquettes, dans la base de données du site, comme le site lui-même ;
-- sur demande, ta liste d'amis et la collection d'un ami, par les pages du site ;
-- pour une famille, les cartes qui correspondent à des titres d'articles, dans la base du site.
+- sur demande, ta liste d'amis et la collection d'un ami, par les pages du site.
 
 ## Ce qu'elle fait sur le site
 
@@ -20,7 +19,7 @@ Seulement sur ton clic, après confirmation : mettre un exemplaire de ta collect
 
 ## Ce qu'elle garde
 
-Tout est gardé dans le stockage de l'extension, sur ton ordinateur (`chrome.storage.local`) : prix, collection, réglages, récap des paquets, familles. Rien n'est envoyé au développeur. Le panneau « Réglages » montre la taille de chaque donnée, permet de la vider et d'en faire une sauvegarde.
+Tout est gardé dans le stockage de l'extension, sur ton ordinateur (`chrome.storage.local`) : prix, collection, réglages, récap des paquets. Rien n'est envoyé au développeur. Le panneau « Réglages » montre la taille de chaque donnée, permet de la vider et d'en faire une sauvegarde.
 
 Le jeton de session du site n'est jamais enregistré par l'extension : il est lu dans le cookie du site au moment d'une lecture, et envoyé seulement à la base de données du site.
 

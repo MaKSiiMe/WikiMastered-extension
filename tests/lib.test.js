@@ -356,16 +356,6 @@ test("collection d'un autre joueur lue dans la réponse de son profil", () => {
   assert.deepEqual([t.tags, t.tagNames, t.tagsSeen], [{ x1: ["t1", "t2"], x2: ["t1"] }, { t1: "Lieu", t2: "Babie" }, true]);
 });
 
-test("familles : progression, coût des manquantes, code de partage", () => {
-  const cards = [{ id: "a", title: "Mars" }, { id: "b", title: "Vénus" }, { id: "c", title: "Pluton" }];
-  const p = WME.familyProgress(cards, { a: { owned: true }, b: { owned: false, cheapest: { rarity: "C", avg: 12 } }, c: { owned: false, cheapest: null } });
-  assert.deepEqual([p.total, p.owned, p.cost, p.unpriced, p.missing.map((m) => m.id)], [3, 1, 12, 1, ["b", "c"]]);
-  const code = WME.familyCode({ name: "Planètes", cards });
-  assert.ok(code.startsWith("WME-F1."));
-  assert.deepEqual(WME.readFamilyCode(code), { name: "Planètes", cards });
-  assert.equal(WME.readFamilyCode("n'importe quoi"), null);
-});
-
 test("amis qui ont une carte souhaitée : catalogue du site, puis leur collection lue", () => {
   const owners = WME.friendOwnersIn({ friendOwners: {
     c1: [{ username: "Bob", rarities: ["ur", "C"] }, "Zoé", { username: "Ana", rarities: [{ rarity: "L", starred: true }] }],
