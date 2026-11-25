@@ -912,6 +912,44 @@ const WME = (() => {
   }
 
   /**
+   * Défausse en masse depuis l'onglet Collection, comme la défausse du bot (DISCARD_MAX_VALUE) : les exemplaires des
+   * raretés choisies dont la cote est au plus `maxPrice` WB. `rows` : la collection gardée
+   * ([exemplaire, carte, rareté, nombre, favori, shiny, image]) ; `cardTags` : exemplaire -> étiquettes ;
+   * `priceInfo(carte, rareté)` -> { state: "price" | "never" | "unknown", avg }.
+   * Règles : { rarities: [codes], maxPrice (WB, obligatoire), keepOne (garder au moins un exemplaire de chaque carte,
+   * le plus rare), neverSold (compter aussi les cartes jamais vendues dans leur rareté) }.
+   * Jamais : un shiny, un favori, un exemplaire étiqueté, une ligne de plusieurs exemplaires (on ne sait pas si le site
+   * en défausse un ou tous). Prix inconnu : gardé, compté dans `unknown`.
+   * -> { picks: [{ copy, id, rarity, price }], unknown, protected }
+   */
+  function bulkDiscardPicks(rows, cardTags, rules, priceInfo) {
+    const rarities = new Set(((rules && rules.rarities) || []).map((r) => String(r).toUpperCase()));
+    const max = rules && rules.maxPrice !== null && rules.maxPrice !== "" && Number.isFinite(Number(rules.maxPrice)) ? Number(rules.maxPrice) : null;
+    const out = { picks: [], unknown: 0, protected: 0 };
+    if (max === null || !rarities.size) return out;
+    const copies = new Map(); // carte -> exemplaires possédés, toutes raretés
+    for (const [, cardId, , count] of rows || []) copies.set(cardId, (copies.get(cardId) || 0) + Math.max(1, Number(count) || 1));
+    const byCard = new Map();
+    for (const [copy, cardId, rarity, count, starred, shiny] of rows || []) {
+      if (!rarities.has(String(rarity).toUpperCase())) continue;
+      if (shiny || starred || (Number(count) || 1) > 1 || ((cardTags && cardTags[copy]) || []).length) { out.protected += 1; continue; }
+      const info = priceInfo(cardId, rarity) || { state: "unknown" };
+      if (info.state === "unknown") { out.unknown += 1; continue; }
+      if (info.state === "never" ? !rules.neverSold : !(Number(info.avg) <= max)) continue;
+      const pick = { copy: String(copy), id: String(cardId), rarity, price: info.state === "never" ? null : Number(info.avg) };
+      (byCard.get(cardId) || byCard.set(cardId, []).get(cardId)).push(pick);
+    }
+    for (const [cardId, picks] of byCard) {
+      if (rules.keepOne && picks.length >= copies.get(cardId)) {
+        picks.sort((a, b) => rank(b.rarity) - rank(a.rarity));
+        picks.shift(); // dernier exemplaire de la carte : le plus rare reste
+      }
+      out.picks.push(...picks);
+    }
+    return out;
+  }
+
+  /**
    * Paquets d'après le profil du site (rpc get_my_profile : packs_remaining, packs_last_regen_at,
    * last_normal_pack_opened_at, is_pro, is_vip) : un paquet toutes les 10 min (3 min pour un compte pro ou VIP),
    * jusqu'à 10 (relevé dans l'extension WikiMasters QoL). -> { remaining, max, full, nextAt (ms) | null } ou null.
@@ -942,7 +980,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, packState, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

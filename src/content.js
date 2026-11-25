@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, packState, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -1790,6 +1790,57 @@
     return run;
   }
 
+  // Défausse en masse (onglet Collection) : les exemplaires de la collection gardée qui répondent aux règles
+  // (bulkDiscardPicks, src/lib.js), par lots de 50 sur la route de défausse groupée du site (celle du bot :
+  // POST /api/user-cards/bulk-discard { card_ids } -> { discarded_count, failed }), 1,5 s entre deux lots. Le travail
+  // continue panneau fermé ; arrêt au premier lot refusé ou partiel. La collection gardée perd les exemplaires partis.
+  const BULK_BATCH = 50;
+  let bulkJob = { running: false, done: 0, total: 0, error: "", at: 0 };
+  async function bulkPlan(rules) {
+    const collection = await readCollection(false);
+    const plan = bulkDiscardPicks(collection.rows, collection.cardTags, rules, cardPriceInfo);
+    return { collection, plan };
+  }
+  async function bulkPreview(rules) {
+    const { collection, plan } = await bulkPlan(rules);
+    const sample = [...plan.picks].sort((a, b) => (b.price ?? -1) - (a.price ?? -1)).slice(0, 20)
+      .map((c) => ({ ...c, title: collection.titles[c.id] || c.id }));
+    return { count: plan.picks.length, unknown: plan.unknown, protected: plan.protected, sample, job: bulkJob };
+  }
+  async function bulkDiscard(rules) {
+    if (bulkJob.running) throw new Error("Une défausse est déjà en cours.");
+    const { plan } = await bulkPlan(rules);
+    const copies = plan.picks.map((c) => c.copy);
+    if (!copies.length) throw new Error("Aucune carte ne répond à ces règles.");
+    bulkJob = { running: true, done: 0, total: copies.length, error: "", at: Date.now() };
+    (async () => {
+      for (let i = 0; i < copies.length; i += BULK_BATCH) {
+        if (i) await sleep(1500);
+        const batch = copies.slice(i, i + BULK_BATCH);
+        const response = await siteFetch(`${location.origin}/api/user-cards/bulk-discard`, {
+          method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ card_ids: batch }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || (data && data.error)) {
+          if (data && (data.human_verification_required || data.code === "human_verification_required")) throw new Error("le site demande une vérification : fais-la sur le site, puis relance");
+          throw new Error((data && (data.error || data.message)) || `refusée par le site (HTTP ${response.status})`);
+        }
+        const count = Number(data && data.discarded_count) || 0;
+        bulkJob.done += count;
+        if (count !== batch.length || (data && Array.isArray(data.failed) && data.failed.length)) {
+          throw new Error(`lot partiel (${count}/${batch.length}) : arrêt ; relis ta collection avant de relancer`);
+        }
+        const gone = new Set(batch);
+        const kept = await store.get(COLLECTION_KEY, null);
+        if (kept) await store.set(COLLECTION_KEY, { ...kept, rows: kept.rows.filter((r) => !gone.has(r[0])) });
+        window.dispatchEvent(new CustomEvent("wikimasters:wikibidous-balance-refresh")); // le site relit son solde
+      }
+    })().catch((error) => { bulkJob.error = String((error && error.message) || error); })
+      .finally(() => { bulkJob.running = false; bulkJob.at = Date.now(); });
+    return bulkJob;
+  }
+
   // Défausse automatique (réglée dans l'onglet Paquets, coupée par défaut) : les cartes du paquet qui répondent aux
   // règles. Avec un prix maximum, une carte sans prix attend sa lecture (lancée à l'ouverture), 2 min au plus.
   let discardError = "";
@@ -1905,6 +1956,9 @@
         : message.action === "loadWishPrices" ? loadWishPrices().then((count) => ({ ok: true, count }))
         : message.action === "market" ? panelMarket(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "page" ? panelPage().then((data) => ({ ok: true, ...data }))
+        : message.action === "bulkPreview" ? bulkPreview(message.rules || {}).then((data) => ({ ok: true, ...data }))
+        : message.action === "bulkDiscard" ? bulkDiscard(message.rules || {}).then((job) => ({ ok: true, job }))
+        : message.action === "bulkStatus" ? Promise.resolve({ ok: true, job: bulkJob })
         : message.action === "discard" ? (lastPack ? discardCards(lastPack.cards.filter((c) => (message.copies || []).includes(c.copy)), false)
           : Promise.reject(new Error("Aucun paquet ouvert depuis le chargement de la page."))).then((count) => ({ ok: true, count }))
           : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
