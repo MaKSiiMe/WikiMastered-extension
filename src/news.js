@@ -1,6 +1,9 @@
 // Nouveautés de chaque version, pour l'onglet « Nouveautés » du panneau (#28). option : réglage qu'un bouton
 // « Activer » allume (message au content script). La plus récente d'abord ; garder les 10 dernières versions.
 const WME_NEWS = [
+  { version: "0.16.0", items: [
+    { text: "Prix faussé : quand une vente isolée hors de proportion fait la semaine (15 septembre SR vendue 8 067 au lieu de ~40), le badge affiche le prix habituel marqué « ⚠ », avec un contour orange ; le chiffre du site reste au survol." },
+  ] },
   { version: "0.15.0", items: [
     { text: "L'onglet Familles est retiré. Tes familles restent enregistrées : Réglages › Données pour les sauvegarder ou les vider." },
   ] },
@@ -39,5 +42,4 @@ const WME_NEWS = [
     { text: "Nouveautés : ce panneau, après chaque mise à jour." },
   ] },
   { version: "0.9.4", items: [{ text: "Marché : « −34 % » bonne affaire et « +50 % » surcoté à côté du prix.", option: "deals" }] },
-  { version: "0.9.3", items: [{ text: "Réglages : taille des données, vider les caches, sauvegarde et restauration JSON." }] },
 ];

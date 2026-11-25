@@ -415,3 +415,23 @@ test("paquets restants et prochaine régénération", () => {
   assert.equal(WME.packState({ packs_remaining: 1, packs_last_regen_at: "2026-11-25T10:00:00Z", is_vip: true }).nextAt, Date.parse("2026-11-25T10:03:00Z"));
   assert.deepEqual(WME.packState({ packs_remaining: 10 }), { remaining: 10, max: 10, full: true, nextAt: null });
 });
+
+test("une vente isolée hors de proportion ne fait pas le prix : prix habituel, chiffre du site gardé à part", () => {
+  // 15 septembre SR, 25/11 : une seule vente à 8 067 la semaine du 23/11, ~40 avant (le site : « +17 826 % »).
+  const now = new Date("2026-11-25T12:00:00Z");
+  const weeks = [
+    { start: "2026-11-02", avg: 38, count: 9 },
+    { start: "2026-11-09", avg: 41, count: 6 },
+    { start: "2026-11-16", avg: 43, count: 5 },
+    { start: "2026-11-23", avg: 8067, min: 8067, max: 8067, count: 1 },
+  ];
+  const q = WME.quotes({ by_rarity: { SR: { weekly: weeks } } }, now).SR;
+  assert.deepEqual([q.avg, q.count, q.week, q.prev], [43, 5, "2026-11-16", 41]);
+  assert.deepEqual(q.skewed, { avg: 8067, count: 1, week: "2026-11-23" });
+  // Une semaine très vendue reste, même loin des autres : vraie tendance.
+  const jump = WME.quotes({ by_rarity: { L: { weekly: [{ start: "2026-11-16", avg: 900, count: 4 }, { start: "2026-11-23", avg: 9000, count: 40 }] } } }, now).L;
+  assert.equal(jump.avg, 9000);
+  assert.equal(jump.skewed, undefined);
+  // Une seule semaine de ventes : rien à comparer.
+  assert.equal(WME.quotes({ by_rarity: { R: { weekly: [{ start: "2026-11-23", avg: 8067, count: 1 }] } } }, now).R.avg, 8067);
+});
