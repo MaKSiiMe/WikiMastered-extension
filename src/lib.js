@@ -917,10 +917,13 @@ const WME = (() => {
    * ([exemplaire, carte, rareté, nombre, favori, shiny, image]) ; `cardTags` : exemplaire -> étiquettes ;
    * `priceInfo(carte, rareté)` -> { state: "price" | "never" | "unknown", avg }.
    * Règles : { rarities: [codes], maxPrice (WB, obligatoire), keepOne (garder au moins un exemplaire de chaque carte,
-   * le plus rare), neverSold (compter aussi les cartes jamais vendues dans leur rareté) }.
-   * Jamais : un shiny, un favori, un exemplaire étiqueté, une ligne de plusieurs exemplaires (on ne sait pas si le site
-   * en défausse un ou tous). Prix inconnu : gardé, compté dans `unknown`.
-   * -> { picks: [{ copy, id, rarity, price }], unknown, protected }
+   * le plus rare), neverSold (compter aussi les cartes jamais vendues dans leur rareté), tags (étiquettes qui
+   * n'empêchent pas la défausse : [identifiants], ou "all" pour toutes) }.
+   * Une shiny compte comme une L (cochée avec L) ; le site n'a pas de prix shiny : celui de la carte ordinaire dans sa
+   * rareté. Pour « garder un exemplaire », elle est au-dessus de la L : c'est elle qui reste.
+   * Jamais : un favori, un exemplaire qui a une étiquette non autorisée, une ligne de plusieurs exemplaires (on ne
+   * sait pas si le site en défausse un ou tous). Prix inconnu : gardé, compté dans `unknown`.
+   * -> { picks: [{ copy, id, rarity, shiny, price }], unknown, protected }
    */
   function bulkDiscardPicks(rows, cardTags, rules, priceInfo) {
     const rarities = new Set(((rules && rules.rarities) || []).map((r) => String(r).toUpperCase()));
@@ -930,18 +933,21 @@ const WME = (() => {
     const copies = new Map(); // carte -> exemplaires possédés, toutes raretés
     for (const [, cardId, , count] of rows || []) copies.set(cardId, (copies.get(cardId) || 0) + Math.max(1, Number(count) || 1));
     const byCard = new Map();
+    const allowed = rules.tags === "all" ? null : new Set(rules.tags || []);
+    const tagOk = (copy) => ((cardTags && cardTags[copy]) || []).every((t) => !allowed || allowed.has(t));
     for (const [copy, cardId, rarity, count, starred, shiny] of rows || []) {
-      if (!rarities.has(String(rarity).toUpperCase())) continue;
-      if (shiny || starred || (Number(count) || 1) > 1 || ((cardTags && cardTags[copy]) || []).length) { out.protected += 1; continue; }
+      if (!rarities.has(shiny ? "L" : String(rarity).toUpperCase())) continue;
+      if (starred || (Number(count) || 1) > 1 || !tagOk(copy)) { out.protected += 1; continue; }
       const info = priceInfo(cardId, rarity) || { state: "unknown" };
       if (info.state === "unknown") { out.unknown += 1; continue; }
       if (info.state === "never" ? !rules.neverSold : !(Number(info.avg) <= max)) continue;
-      const pick = { copy: String(copy), id: String(cardId), rarity, price: info.state === "never" ? null : Number(info.avg) };
+      const pick = { copy: String(copy), id: String(cardId), rarity, shiny: Boolean(shiny), price: info.state === "never" ? null : Number(info.avg) };
       (byCard.get(cardId) || byCard.set(cardId, []).get(cardId)).push(pick);
     }
     for (const [cardId, picks] of byCard) {
       if (rules.keepOne && picks.length >= copies.get(cardId)) {
-        picks.sort((a, b) => rank(b.rarity) - rank(a.rarity));
+        const level = (c) => (c.shiny ? RARITIES.length : rank(c.rarity));
+        picks.sort((a, b) => level(b) - level(a));
         picks.shift(); // dernier exemplaire de la carte : le plus rare reste
       }
       out.picks.push(...picks);
