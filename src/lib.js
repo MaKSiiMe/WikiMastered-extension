@@ -867,6 +867,65 @@ const WME = (() => {
     };
   }
 
+  /**
+   * Cartes d'un paquet ouvert (POST /api/packs/open : { cards: [{ …carte, user_card_id }] }), avec l'exemplaire reçu.
+   * -> [{ id, title, rarity, shiny, copy }] ; une carte sans exemplaire est ignorée (on ne pourrait pas la défausser).
+   */
+  function packCardsIn(data) {
+    const out = [];
+    for (const raw of data && Array.isArray(data.cards) ? data.cards : []) {
+      if (!raw || typeof raw !== "object") continue;
+      const c = raw.wikipedia_title ? card(raw, raw.snapshot_rarity || raw.rarity, raw.is_shiny) : raw.card ? card(raw.card, raw.snapshot_rarity, raw.is_shiny) : null;
+      const copy = raw.user_card_id || (raw.card && raw.id);
+      if (c && copy) out.push({ id: c.id, title: c.title, rarity: c.rarity, shiny: c.shiny, copy: String(copy) });
+    }
+    return out;
+  }
+
+  /**
+   * Défausse à l'ouverture d'un paquet, selon les règles du joueur : { rarities: [codes], maxPrice (WB, ou null : pas
+   * de limite), duplicatesOnly }. Jamais un shiny. « Doublons seulement » : la carte était déjà dans la collection
+   * avant ce paquet (wasOwned(id) === true), ou c'est le deuxième exemplaire de la même carte dans le paquet ; une
+   * possession inconnue ne suffit pas. Avec un prix maximum, une carte sans prix connu attend (priceOf -> null).
+   * -> { discard: [cartes], wait: [cartes] }
+   */
+  function discardPicks(cards, rules, wasOwned = () => undefined, priceOf = () => null) {
+    const rarities = new Set(((rules && rules.rarities) || []).map((r) => String(r).toUpperCase()));
+    const max = rules && Number.isFinite(Number(rules.maxPrice)) && rules.maxPrice !== null && rules.maxPrice !== "" ? Number(rules.maxPrice) : null;
+    const inPack = new Set();
+    const discard = [];
+    const wait = [];
+    for (const c of cards || []) {
+      const again = inPack.has(c.id);
+      inPack.add(c.id);
+      if (c.shiny || !rarities.has(String(c.rarity).toUpperCase())) continue;
+      if (rules.duplicatesOnly && !(again || wasOwned(c.id) === true)) continue;
+      if (max !== null) {
+        const price = priceOf(c);
+        if (price === null || price === undefined || !Number.isFinite(price)) { wait.push(c); continue; }
+        if (price > max) continue;
+      }
+      discard.push(c);
+    }
+    return { discard, wait };
+  }
+
+  /**
+   * Paquets d'après le profil du site (rpc get_my_profile : packs_remaining, packs_last_regen_at,
+   * last_normal_pack_opened_at, is_pro, is_vip) : un paquet toutes les 10 min (3 min pour un compte pro ou VIP),
+   * jusqu'à 10 (relevé dans l'extension WikiMasters QoL). -> { remaining, max, full, nextAt (ms) | null } ou null.
+   */
+  function packState(profile) {
+    if (!profile || !Number.isFinite(Number(profile.packs_remaining))) return null;
+    const remaining = Number(profile.packs_remaining);
+    const max = 10;
+    const full = remaining >= max;
+    const base = Math.max(Date.parse(profile.packs_last_regen_at) || 0, Date.parse(profile.last_normal_pack_opened_at) || 0);
+    const period = (profile.is_pro || profile.is_vip ? 3 : 10) * 60e3;
+    // Échéance passée : le site ne recompte qu'à sa prochaine lecture du profil (le panneau affiche « bientôt »).
+    return { remaining, max, full, nextAt: full || !base ? null : base + period };
+  }
+
   /** Une mesure par jour de la valeur de la collection (#18) : { "2026-11-24": valeur }, 365 jours au plus. */
   function addDailyValue(history, day, value, max = 365) {
     const next = { ...(history || {}), [day]: Math.round(value) };
@@ -882,7 +941,7 @@ const WME = (() => {
     return Math.round(n).toLocaleString("fr-FR");
   }
 
-  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, familyProgress, familyCode, readFamilyCode, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, familyProgress, familyCode, readFamilyCode, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, packState, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

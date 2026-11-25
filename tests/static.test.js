@@ -11,7 +11,7 @@ const GLOBALS = new Set(`fetch setTimeout clearTimeout setInterval clearInterval
   Date JSON Map Set WeakMap URL URLSearchParams Headers Blob encodeURIComponent decodeURIComponent getComputedStyle Error
   TypeError RegExp isFinite isNaN parseInt parseFloat atob btoa TextEncoder TextDecoder confirm alert structuredClone
   AbortSignal Symbol Uint8Array CSS requestAnimationFrame queueMicrotask MessageEvent MutationObserver Intl FileReader
-  require Event KeyboardEvent MouseEvent InputEvent PointerEvent`.split(/\s+/));
+  require Event CustomEvent KeyboardEvent MouseEvent InputEvent PointerEvent`.split(/\s+/));
 const KEYWORDS = new Set("if for while switch catch function return typeof new await async super import export do else of".split(" "));
 
 function declared(source) {

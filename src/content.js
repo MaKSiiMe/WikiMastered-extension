@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, packState, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -72,12 +72,16 @@
 
   // Réglages persistés : badges actifs par défaut ; automatisations par clic, bonnes affaires du marché et images
   // Wikipédia désactivées par défaut. minWeekSales : ventes de la semaine à partir desquelles un prix est fiable.
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, deals: false, images: false };
+  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, deals: false, images: false,
+    autoDiscard: { on: false, rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true } };
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
   const auctions = new Map(); // « carte|rareté » -> enchère du marché la plus proche de sa fin (auctionsIn), pour #16
   const trades = new Map(); // id d'échange -> { id, sides } (src/lib.js, tradesIn)
+  let siteProfile = null; // { at, data } : dernier profil lu par le site (paquets restants), src/inject.js
+  let achievementProgress = null; // { at, progress: [{ code, current, target }] } : page /achievements du site
+  let lastSheet = null; // { id, at } : dernière fiche de carte ouverte (le site a lu son historique de prix)
   let pullLog = WME.emptyPullLog(); // paquets ouverts : { titles, packs } (src/lib.js, addPull)
   let pullBaselineEntry = null; // { at, counts } une fois repris de l'autre extension (ou remis à zéro)
 
@@ -537,6 +541,19 @@
     }
     if (event.data.kind === "price-history") {
       fromSite(event.data.url, event.data.data);
+      // Le site lit l'historique d'une carte quand on ouvre sa fiche : c'est la fiche ouverte (onglet Page).
+      const sheet = /\/api\/marketplace\/cards\/([^/?#]+)\/price-history/.exec(String(event.data.url));
+      if (sheet) lastSheet = { id: decodeURIComponent(sheet[1]), at: Date.now() };
+      return;
+    }
+    if (event.data.kind === "profile") {
+      const p = Array.isArray(event.data.data) ? event.data.data[0] : event.data.data;
+      if (p && Number.isFinite(Number(p.packs_remaining))) siteProfile = { at: Date.now(), data: p };
+      return;
+    }
+    if (event.data.kind === "achievements") {
+      const progress = event.data.data && Array.isArray(event.data.data.progress) ? event.data.data.progress : null;
+      if (progress) achievementProgress = { at: Date.now(), progress };
       return;
     }
     if (event.data.kind === "sales") {
@@ -930,6 +947,8 @@
   }
 
   let badgeTimer = null;
+  let pageCards = []; // cartes affichées (dernier passage de drawBadges) : [{ id, title, rarity, shiny }]
+  const pickKeys = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
   let shownValue = 0;
   let shownTiles = 0;
   function scheduleBadges() {
@@ -1271,6 +1290,189 @@
     return mineCache;
   }
 
+  // ------------------------------------------------------------------ onglet Page : selon la page ouverte du site
+  const titleOf = (id) => {
+    for (const entry of seen.values()) if (entry.id === id) return entry.title;
+    return "";
+  };
+  const byPriceDesc = (a, b) => (b.price ?? -1) - (a.price ?? -1);
+
+  // Fiche d'une carte ouverte : ceux de mes amis qui l'ont (catalogue du site, champ friendOwners) et ses prochaines
+  // enchères (marché, tri « Fin proche », comme le site). Deux requêtes par carte, gardées 5 min ; lancées en
+  // arrière-plan, le panneau les affiche au rafraîchissement suivant.
+  const sheetCache = new Map(); // carte -> { at, loading, friends, friendsGiven, auctions, error }
+  function sheetInfo(id, title) {
+    const known = sheetCache.get(id);
+    if (known && (known.loading || Date.now() - known.at < 5 * 60e3)) return known;
+    const out = { at: Date.now(), loading: true, friends: null, friendsGiven: false, auctions: null, error: "" };
+    sheetCache.set(id, out);
+    (async () => {
+      const q = encodeURIComponent(title.slice(0, 80));
+      const get = async (url) => {
+        const response = await siteFetch(url, { credentials: "include" });
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new Error(siteLimit(response.status, body) ? "le site limite les lectures : réessaie plus tard" : `HTTP ${response.status}`);
+        }
+        return response.json();
+      };
+      // Le catalogue cherche un morceau du titre, par ordre alphabétique : la carte n'est pas forcément en page 1.
+      for (let page = 1; page <= 3 && out.friends === null; page++) {
+        if (page > 1) await sleep(800);
+        const data = await get(`${location.origin}/api/cards?page=${page}&sort=rarity&q=${q}`);
+        note(data);
+        noteOwnership("/api/cards", data);
+        out.friendsGiven ||= Boolean(data && data.friendOwners);
+        if (cardsIn(data).some((c) => c.id === id)) out.friends = wishOwners(friendOwnersIn(data)[id] || [], friendRowsOf(id));
+        if (!(Array.isArray(data && data.cards) && data.cards.length >= 50)) break;
+      }
+      await sleep(500);
+      const market = await get(`${location.origin}/api/marketplace?page=1&limit=50&sort=ending_soon&q=${q}`);
+      out.auctions = auctionsIn(market).filter((a) => a.cardId === id && a.endAt > Date.now()).slice(0, 10)
+        .map((a) => ({ rarity: a.rarity, shiny: a.shiny, bid: minBid(a), endAt: a.endAt, quote: a.shiny ? null : cardPrice(a.cardId, a.rarity) }));
+    })().catch((error) => {
+      out.error = String((error && error.message) || error);
+    }).finally(() => {
+      out.loading = false;
+      out.at = Date.now();
+    });
+    return out;
+  }
+
+  // Un ami (son profil ouvert, ou l'offre d'échange en cours avec lui) : ses cartes de ma liste de souhaits qu'il peut
+  // m'échanger, et mes doublons qu'il n'a pas (si sa collection a été lue, onglet Filtres).
+  async function friendContext(name) {
+    const lower = name.toLowerCase();
+    const friends = await readFriends().catch(() => []);
+    const out = { pseudo: name, isFriend: friends.some((n) => n.toLowerCase() === lower), wishes: null, doubles: null, read: null };
+    if (!out.isFriend) return out;
+    const stale = !wishOwnersCache || Date.now() - wishOwnersCache.at > 30 * 60e3;
+    if (stale && !(wishOwnersError && Date.now() - wishOwnersTried < 5 * 60e3)) readWishOwners(false).catch(() => {});
+    if (wishOwnersCache && wishOwnersCache.given) {
+      const titles = Object.fromEntries((wishCache ? wishCache.wishes : []).map((w) => [w.id, w.title]));
+      out.wishes = [];
+      for (const [id, list] of Object.entries(wishOwnersCache.owners)) {
+        const [v] = wishOwners(list.filter((o) => o.username.toLowerCase() === lower), friendRowsOf(id));
+        if (!v || v.status === "locked") continue;
+        const prices = v.rarities.map((r) => cardPrice(id, r)).filter(Boolean).map((p) => p.avg);
+        out.wishes.push({ id, title: titles[id] || titleOf(id) || id, rarities: v.rarities, status: v.status, price: prices.length ? Math.min(...prices) : null });
+      }
+      out.wishes.sort(byPriceDesc);
+    }
+    const f = friendCache.get(lower);
+    const col = await store.get(COLLECTION_KEY, null);
+    if (f && col) {
+      const his = new Set(f.rows.map((r) => r[1]));
+      const mine = new Map(); // carte -> { copies, free: rareté d'un exemplaire ni favori ni shiny }
+      for (const [, id, rarity, count, starred, shiny] of col.rows) {
+        const m = mine.get(id) || mine.set(id, { copies: 0, free: "" }).get(id);
+        m.copies += count;
+        if (!starred && !shiny && (!m.free || rank(rarity) < rank(m.free))) m.free = rarity;
+      }
+      out.doubles = [...mine].filter(([id, m]) => m.copies >= 2 && m.free && !his.has(id))
+        .map(([id, m]) => { const p = cardPrice(id, m.free); return { id, title: col.titles[id] || id, rarity: m.free, copies: m.copies, price: p ? p.avg : null }; })
+        .sort(byPriceDesc).slice(0, 30);
+      out.read = { at: f.at, rarities: f.rarities };
+    }
+    return out;
+  }
+
+  // Succès : leurs titres (table achievements de la base du site, lue une fois).
+  let achievementTitles = null;
+  async function readAchievementTitles() {
+    if (achievementTitles) return achievementTitles;
+    const access = await store.get(SUPABASE_KEY, null);
+    if (!access) return {};
+    const { token } = await session(access.base);
+    const response = await fetch(`${access.base}achievements?select=code,title,description`, {
+      credentials: "omit", headers: { apikey: access.apikey, authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return {};
+    const list = await response.json();
+    achievementTitles = Object.fromEntries((Array.isArray(list) ? list : []).filter((a) => a && a.code).map((a) => [a.code, { title: String(a.title || a.code), description: String(a.description || "") }]));
+    return achievementTitles;
+  }
+
+  // Fiche de carte ouverte : une fenêtre du site dont un titre est celui d'une carte connue. Le site relit l'historique
+  // d'une carte à l'ouverture de sa fiche (sauf dans les 10 min, il le garde) : la dernière lue départage plusieurs titres.
+  function openSheet() {
+    if (tradeWindow()) return null;
+    const found = new Map();
+    for (const modal of document.querySelectorAll(MODAL)) {
+      for (const heading of modal.querySelectorAll("h1, h2, h3")) {
+        const entry = seen.get(norm(heading.textContent));
+        if (entry) found.set(entry.id, entry.title);
+      }
+    }
+    const id = lastSheet && found.has(lastSheet.id) ? lastSheet.id : found.size === 1 ? [...found.keys()][0] : null;
+    return id ? { id, title: found.get(id) } : null;
+  }
+
+  async function panelPage() {
+    const path = location.pathname;
+    const kind = path.startsWith("/pulls") ? "pulls" : path.startsWith("/collection") ? "collection"
+      : /^\/marketplace\/[^/]+/.test(path) ? "auction" : onMarket() ? "market"
+      : /^\/profile\/[^/]+/.test(path) ? "profile" : path.startsWith("/achievements") ? "achievements"
+      : path.startsWith("/guild") ? "guild" : path.startsWith("/trades") ? "trades" : "other";
+    const out = { kind, packs: siteProfile ? { ...packState(siteProfile.data), at: siteProfile.at } : null };
+    const withPrice = (c) => ({ ...c, price: c.shiny ? null : priceOf(c, true) });
+    const unique = [...new Map(pageCards.map((c) => [`${c.id}|${c.rarity}|${c.shiny ? 1 : 0}`, withPrice(c)])).values()];
+    const wished = new Set(wishCache ? wishCache.wishes.map((w) => w.id) : []);
+
+    if (kind === "pulls" && lastPack) {
+      out.pack = { at: lastPack.at, cards: lastPack.cards.map((c) => ({ copy: c.copy, title: c.title, rarity: c.rarity, shiny: c.shiny,
+        wasOwned: c.wasOwned, discarded: c.discarded, price: withPrice(c).price })) };
+    }
+    if (kind === "collection") {
+      const col = await store.get(COLLECTION_KEY, null);
+      const copies = new Map();
+      if (col) for (const r of col.rows) copies.set(r[1], (copies.get(r[1]) || 0) + r[3]);
+      out.collection = {
+        known: Boolean(col),
+        doubles: unique.filter((c) => (copies.get(c.id) || 0) >= 2).map((c) => ({ ...c, copies: copies.get(c.id) })).sort(byPriceDesc).slice(0, 20),
+        unpriced: unique.filter((c) => !c.shiny && c.price === null).map((c) => c.id),
+        top: unique.filter((c) => c.price !== null).sort(byPriceDesc).slice(0, 5),
+      };
+    }
+    if (kind === "market") {
+      const ids = new Set(unique.map((c) => c.id));
+      const wishes = [];
+      for (const a of auctions.values()) {
+        if (!ids.has(a.cardId) || !wished.has(a.cardId) || !(a.endAt > Date.now())) continue;
+        wishes.push({ title: a.title, rarity: a.rarity, shiny: a.shiny, bid: minBid(a), endAt: a.endAt, quote: a.shiny ? null : cardPrice(a.cardId, a.rarity) });
+      }
+      let mine;
+      try {
+        const m = await readMarketMine(false);
+        mine = { bidding: m.bidding.map((a) => ({ title: a.title, rarity: a.rarity, shiny: a.shiny, price: a.price, leading: a.leading, endAt: a.endAt })),
+          selling: m.selling.length, max: m.max };
+      } catch (error) {
+        mine = { error: String((error && error.message) || error) };
+      }
+      out.market = { deals: auctionDeals().filter((d) => ids.has(d.cardId)), wishes: wishes.sort((a, b) => a.endAt - b.endAt), wishesKnown: Boolean(wishCache), mine };
+    }
+    const friendName = shownDraft ? shownDraft.friend : kind === "profile" ? decodeURIComponent(path.split("/")[2] || "") : "";
+    if (friendName) out.friend = await friendContext(friendName).catch(() => null);
+    if (kind === "profile") out.showcase = { value: shownValue, tiles: shownTiles };
+    const sheet = openSheet();
+    if (sheet) {
+      const { id, title } = sheet;
+      {
+        const info = sheetInfo(id, title);
+        out.sheet = { title, wished: wished.has(id), owned: owned.get(id), loading: info.loading, friends: info.friends,
+          friendsGiven: info.friendsGiven, auctions: info.auctions, error: info.error };
+      }
+    }
+    if (kind === "achievements" && achievementProgress) {
+      const titles = await readAchievementTitles().catch(() => ({}));
+      out.achievements = { at: achievementProgress.at, items: achievementProgress.progress
+        .filter((p) => p && p.code && Number(p.target) > 0)
+        .map((p) => ({ code: String(p.code), current: Number(p.current) || 0, target: Number(p.target), ...(titles[p.code] || { title: String(p.code), description: "" }) }))
+        .sort((a, b) => b.current / b.target - a.current / a.target) };
+    }
+    return out;
+  }
+
   // Chaque enchère avec la cote de sa carte dans sa rareté (prix manquants demandés en arrière-plan).
   async function panelMarket(force) {
     const m = await readMarketMine(force);
@@ -1417,26 +1619,6 @@
     return { cards, more: Boolean(data && data.searchHasMore) || (Array.isArray(data && data.cards) && data.cards.length >= 50) };
   }
 
-  // Cartes du jeu d'après des titres d'articles (catégorie Wikipédia, #20) : table cards de la base du site, recherche
-  // exacte par titre (indexée : ~0,2 s), 100 titres par requête. -> [{ id, title, rarity }]
-  async function cardsByTitles(titles) {
-    const list = [...new Set((Array.isArray(titles) ? titles : []).map((t) => String(t).trim()).filter(Boolean))].slice(0, 5000);
-    const access = await store.get(SUPABASE_KEY, null);
-    if (!access) throw new Error("Accès à la base pas encore repéré : recharge une page du site, puis réessaie.");
-    const { token } = await session(access.base);
-    const quote = (t) => '"' + t.replace(/\\/g, "\\\\").replace(/\x22/g, '\\"') + '"'; // titre entre guillemets (PostgREST)
-    const out = [];
-    for (let i = 0; i < list.length; i += 100) {
-      const filter = encodeURIComponent(`(${list.slice(i, i + 100).map(quote).join(",")})`);
-      const response = await fetch(`${access.base}cards?select=id,wikipedia_title,rarity&wikipedia_title=in.${filter}`, {
-        credentials: "omit", headers: { apikey: access.apikey, authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error(`Recherche des cartes refusée (HTTP ${response.status})`);
-      for (const c of await response.json()) if (c && c.id) out.push({ id: String(c.id), title: String(c.wikipedia_title), rarity: String(c.rarity || "").toUpperCase() });
-    }
-    return out;
-  }
-
   async function cardsInfo(ids) {
     const collection = await store.get(COLLECTION_KEY, null);
     const mine = new Set(collection ? collection.rows.map((r) => r[1]) : []);
@@ -1565,6 +1747,7 @@
     for (const [tile, entry] of tiles) (pageTiles.get(entry.id) || pageTiles.set(entry.id, []).get(entry.id)).push(tile);
     shownTiles = tiles.length;
     shownValue = tiles.reduce((sum, [tile, entry]) => sum + badge(tile, entry), 0);
+    pageCards = tiles.map(([tile, entry]) => ({ id: entry.id, title: entry.title, ...pickKeys(tileRarity(tile, entry), ["rarity", "shiny"]) }));
     drawTrades(tiles);
     drawTradeDraft(tiles);
   }
@@ -1599,7 +1782,70 @@
     pullLog = addPull(pullLog, { at: Date.now(), auto, cards }, PULLS_MAX);
     store.set(PULLS_KEY, pullLog);
     for (const c of cards) if (!c.shiny) want(c.id, "urgent", c.rarity);
+    // Le paquet avec ses exemplaires, pour la défausse (onglet Page sur /pulls, et la défausse automatique).
+    const wasOwned = new Map(cards.map((c) => [c.id, c.isNew === undefined ? undefined : !c.isNew]));
+    lastPack = { at: Date.now(), cards: packCardsIn(event.data.data).map((c) => ({ ...c, wasOwned: wasOwned.get(c.id), discarded: false })) };
+    if (Number.isFinite(Number(event.data.data && event.data.data.packs_remaining)) && siteProfile) {
+      siteProfile = { at: siteProfile.at, data: { ...siteProfile.data, packs_remaining: Number(event.data.data.packs_remaining), last_normal_pack_opened_at: new Date().toISOString() } };
+    }
+    autoDiscard(lastPack).catch(() => {});
   });
+
+  // ------------------------------------------------------------------ défausse (une carte contre 1 WikiBidou)
+  // La requête du récapitulatif de paquet du site : POST /api/user-cards/{exemplaire}/discard, sans corps. Une à la
+  // fois, 0,8 s d'écart ; arrêt au premier refus (vérification humaine, carte engagée…). Jamais un favori : une carte
+  // qui sort d'un paquet n'en est pas un, et la défausse à la main ne vise que le dernier paquet.
+  let lastPack = null; // { at, cards: [{ id, title, rarity, shiny, copy, wasOwned, discarded }] }
+  let discardLog = []; // dernières défausses : [{ at, title, rarity, price, auto }]
+  let discarding = Promise.resolve();
+  function discardCards(list, auto) {
+    const run = discarding.then(async () => {
+      let done = 0;
+      for (const c of list) {
+        if (c.discarded) continue;
+        if (done) await sleep(800);
+        const response = await siteFetch(`${location.origin}/api/user-cards/${encodeURIComponent(c.copy)}/discard`, { method: "POST", credentials: "include" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || (data && data.error)) {
+          if (data && (data.human_verification_required || data.code === "human_verification_required")) throw new Error("le site demande une vérification : fais-la sur le site");
+          throw new Error((data && (data.error || data.message)) || `refusée par le site (HTTP ${response.status})`);
+        }
+        c.discarded = true;
+        done += 1;
+        if (c.wasOwned === false && !list.some((o) => o !== c && o.id === c.id && !o.discarded)) owned.set(c.id, false);
+        discardLog = [{ at: Date.now(), title: c.title, rarity: c.rarity, price: priceOf(c, true), auto }, ...discardLog].slice(0, 30);
+      }
+      if (done) window.dispatchEvent(new CustomEvent("wikimasters:wikibidous-balance-refresh")); // le site relit son solde
+      return done;
+    });
+    discarding = run.catch(() => {});
+    return run;
+  }
+
+  // Défausse automatique (réglée dans l'onglet Paquets, coupée par défaut) : les cartes du paquet qui répondent aux
+  // règles. Avec un prix maximum, une carte sans prix attend sa lecture (lancée à l'ouverture), 2 min au plus.
+  let discardError = "";
+  async function autoDiscard(pack) {
+    const rules = settings.autoDiscard;
+    if (!rules || !rules.on) return;
+    let cards = pack.cards;
+    for (let round = 0; round < 13 && cards.length; round++) {
+      if (round) await sleep(10e3);
+      // Les cartes en attente ont déjà passé la règle des doublons au premier tour : seul leur prix reste à voir.
+      const { discard, wait } = discardPicks(cards, round ? { ...rules, duplicatesOnly: false } : rules,
+        (id) => pack.cards.find((c) => c.id === id).wasOwned, (c) => priceOf(c, true));
+      if (discard.length) {
+        try {
+          await discardCards(discard, true);
+          discardError = "";
+        } catch (error) {
+          discardError = String((error && error.message) || error);
+          return;
+        }
+      }
+      cards = wait;
+    }
+  }
 
   // Fige les prix connus dans le journal (settlePullPrices, src/lib.js) et l'enregistre s'il a changé.
   function settlePulls() {
@@ -1649,7 +1895,7 @@
       const entry = prices[a.cardId];
       const q = usable(entry) && !entry.failed ? entry.q[a.rarity] : null;
       const deal = q ? auctionDeal(a, q.avg, reliable(q, settings.minWeekSales), now) : null;
-      if (deal) out.push({ title: a.title, rarity: a.rarity, price: q.avg, bid: minBid(a), endAt: a.endAt, ...deal });
+      if (deal) out.push({ cardId: a.cardId, title: a.title, rarity: a.rarity, price: q.avg, bid: minBid(a), endAt: a.endAt, ...deal });
     }
     return out.sort((x, y) => x.endAt - y.endAt).slice(0, 50);
   }
@@ -1680,7 +1926,6 @@
         .then((count) => ({ ok: true, count }))
         : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
         : message.action === "catalogSearch" ? catalogSearch(message.q, message.page).then((found) => ({ ok: true, ...found }))
-        : message.action === "cardsByTitles" ? cardsByTitles(message.titles).then((cards) => ({ ok: true, cards }))
         : message.action === "friends" ? readFriends().then((names) => ({ ok: true, names }))
         : message.action === "friendStatus" ? Promise.resolve({ ok: true, ...friendStatus() })
         : message.action === "sell" ? sellCopy(message.copy, message.base, message.minutes).then((r) => ({ ok: true, ...r }))
@@ -1694,6 +1939,9 @@
         : message.action === "wishlist" ? panelWishlist(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "loadWishPrices" ? loadWishPrices().then((count) => ({ ok: true, count }))
         : message.action === "market" ? panelMarket(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
+        : message.action === "page" ? panelPage().then((data) => ({ ok: true, ...data }))
+        : message.action === "discard" ? (lastPack ? discardCards(lastPack.cards.filter((c) => (message.copies || []).includes(c.copy)), false)
+          : Promise.reject(new Error("Aucun paquet ouvert depuis le chargement de la page."))).then((count) => ({ ok: true, count }))
           : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
       work.catch((error) => ({ ok: false, error: String((error && error.message) || error) })).then(reply);
       return true;
@@ -1713,6 +1961,15 @@
       store.set("settings", settings);
       if (!settings.images) document.querySelectorAll(".wme-art").forEach((img) => img.remove());
       drawBadges();
+    } else if (message.type === "autoDiscard") {
+      const r = message.rules || {};
+      const max = Number(r.maxPrice);
+      settings.autoDiscard = {
+        on: Boolean(r.on), duplicatesOnly: r.duplicatesOnly !== false,
+        rarities: (Array.isArray(r.rarities) ? r.rarities : []).map((x) => String(x).toUpperCase()).filter((x) => rank(x) >= 0),
+        maxPrice: r.maxPrice !== null && r.maxPrice !== "" && Number.isFinite(max) && max >= 0 ? Math.round(max) : null,
+      };
+      store.set("settings", settings);
     } else if (message.type === "deals") {
       settings.deals = Boolean(message.on);
       store.set("settings", settings);
@@ -1761,6 +2018,9 @@
       auctionDeals: auctionDeals(),
       shared: { on: sharedOn, ...sharedStats },
       pulls: pullRecap(pullLog, priceOf, (pullBaselineEntry && pullBaselineEntry.counts) || {}),
+      autoDiscard: settings.autoDiscard,
+      discards: discardLog.slice(0, 10),
+      discardError,
     });
   });
 

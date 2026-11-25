@@ -17,6 +17,10 @@
 
   // Ouverture d'un paquet : POST /api/packs/open (relevé dans l'onglet Réseau du site).
   const PACK_OPEN_URL = /\/api\/packs\/open(?:[/?#]|$)/i;
+  // Lectures que le site fait en POST et dont on recopie la réponse : son profil (paquets restants, dernière
+  // régénération ; relu par le site toutes les ~15 s) et la progression des succès (page /achievements).
+  const PROFILE_URL = /\/rest\/v1\/rpc\/get_my_profile(?:[/?#]|$)/i;
+  const ACHIEVEMENTS_URL = /\/api\/achievements\/check(?:[/?#]|$)/i;
 
   // Le content script démarre plus tard (« document_idle ») : les réponses arrivées avant sont gardées et renvoyées
   // quand il annonce qu'il écoute. Les renvoyer deux fois ne gêne pas : il note simplement les mêmes cartes.
@@ -85,6 +89,15 @@
             forward(message);
           })
           .catch(() => {}); // pas du JSON : ignoré
+      } else if (method === "POST" && response.ok && (PROFILE_URL.test(url) || ACHIEVEMENTS_URL.test(url))) {
+        response.clone().json()
+          .then((data) => {
+            const message = { source: "wme-page", url, data, kind: PROFILE_URL.test(url) ? "profile" : "achievements" };
+            buffer.push(message);
+            if (buffer.length > BUFFER_MAX) buffer.shift();
+            forward(message);
+          })
+          .catch(() => {});
       } else if (method === "POST" && PACK_OPEN_URL.test(url)) {
         // On lit d'abord en texte pour pouvoir tenter JSON.parse sans lever d'erreur si la réponse n'est pas du JSON,
         // et pour inspecter un éventuel défi même lorsque le statut HTTP n'est pas 2xx.

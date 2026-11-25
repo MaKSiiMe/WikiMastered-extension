@@ -397,3 +397,31 @@ test("mes enchères au marché : ventes et mises ouvertes, en tête ou non", () 
   assert.deepEqual([m.won[0].final, m.max, m.history.length], [75, 10, 0]);
   assert.deepEqual(WME.myMarketIn(null), { selling: [], bidding: [], won: [], history: [], max: null });
 });
+
+test("défausse à l'ouverture d'un paquet : raretés, doublons, prix maximum", () => {
+  const cards = WME.packCardsIn({ cards: [
+    { id: "a", wikipedia_title: "A", rarity: "C", user_card_id: "u1" },
+    { id: "b", wikipedia_title: "B", rarity: "C", user_card_id: "u2" },
+    { id: "b", wikipedia_title: "B", rarity: "C", user_card_id: "u3" },
+    { id: "c", wikipedia_title: "C", rarity: "UR", user_card_id: "u4" },
+    { id: "d", wikipedia_title: "D", rarity: "PC", is_shiny: true, user_card_id: "u5" },
+    { id: "e", wikipedia_title: "E", rarity: "PC" }] });
+  assert.deepEqual(cards.map((c) => c.copy), ["u1", "u2", "u3", "u4", "u5"]);
+  const owned = { a: true, b: false };
+  const pick = (rules, price = () => 3) => WME.discardPicks(cards, rules, (id) => owned[id], price);
+  // Doublons seulement : A (déjà là) et le second B ; jamais la shiny ni l'UR (rareté non cochée).
+  assert.deepEqual(pick({ rarities: ["C", "PC"], duplicatesOnly: true }).discard.map((c) => c.copy), ["u1", "u3"]);
+  assert.deepEqual(pick({ rarities: ["C", "PC"], duplicatesOnly: false }).discard.map((c) => c.copy), ["u1", "u2", "u3"]);
+  // Prix maximum : au-dessus, gardée ; inconnu, en attente.
+  const priced = pick({ rarities: ["C"], maxPrice: 5, duplicatesOnly: false }, (c) => ({ a: 2, b: 9 })[c.id] ?? null);
+  assert.deepEqual([priced.discard.map((c) => c.copy), priced.wait], [["u1"], []]);
+  assert.deepEqual(pick({ rarities: ["UR"], maxPrice: 5 }, () => null).wait.map((c) => c.copy), ["u4"]);
+});
+
+test("paquets restants et prochaine régénération", () => {
+  assert.equal(WME.packState(null), null);
+  const s = WME.packState({ packs_remaining: 3, packs_last_regen_at: "2026-11-25T10:00:00Z", last_normal_pack_opened_at: "2026-11-25T10:04:00Z" });
+  assert.deepEqual(s, { remaining: 3, max: 10, full: false, nextAt: Date.parse("2026-11-25T10:14:00Z") });
+  assert.equal(WME.packState({ packs_remaining: 1, packs_last_regen_at: "2026-11-25T10:00:00Z", is_vip: true }).nextAt, Date.parse("2026-11-25T10:03:00Z"));
+  assert.deepEqual(WME.packState({ packs_remaining: 10 }), { remaining: 10, max: 10, full: true, nextAt: null });
+});

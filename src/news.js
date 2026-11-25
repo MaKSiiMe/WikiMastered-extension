@@ -1,6 +1,11 @@
 // Nouveautés de chaque version, pour l'onglet « Nouveautés » du panneau (#28). option : réglage qu'un bouton
 // « Activer » allume (message au content script). La plus récente d'abord ; garder les 10 dernières versions.
 const WME_NEWS = [
+  { version: "0.14.0", items: [
+    { text: "Onglet Page selon la page du site : paquets restants partout ; dernier paquet avec défausse carte par carte ; collection (plus chères, doublons, sans prix) ; marché (mes mises, mes souhaits en vente, bonnes affaires) ; profil d'un ami et offre d'échange (ses cartes de ta liste de souhaits, tes doublons qui lui manquent, WB pour équilibrer) ; fiche d'une carte (amis qui l'ont, prochaines enchères) ; succès (avec la page où avancer)." },
+    { text: "Paquets : défausse automatique à l'ouverture, par rareté, cote maximum et doublons seulement. Coupée par défaut." },
+    { text: "Familles : la recherche par catégorie Wikipédia est retirée. Enchères › Vente : la colonne Ex. compte tous les exemplaires de la carte." },
+  ] },
   { version: "0.13.0", items: [
     { text: "Nouveau look : le panneau reprend les couleurs, les polices et les raretés de Wiki Masters, et suit son thème clair ou sombre." },
     { text: "Enchères en deux : Achat (ton solde, tes mises en tête ou dépassées avec la cote, ce que tu as gagné, les bonnes affaires) et Vente (tes ventes en cours, les créneaux libres, les ventes terminées, tes doublons à mettre en vente)." },
@@ -33,5 +38,4 @@ const WME_NEWS = [
   { version: "0.9.4", items: [{ text: "Marché : « −34 % » bonne affaire et « +50 % » surcoté à côté du prix.", option: "deals" }] },
   { version: "0.9.3", items: [{ text: "Réglages : taille des données, vider les caches, sauvegarde et restauration JSON." }] },
   { version: "0.9.2", items: [{ text: "Prix partagés : synchronisation par différence, bien plus légère." }] },
-  { version: "0.9.1", items: [{ text: "Onglet Souhaits : ta liste de souhaits chiffrée." }] },
 ];
