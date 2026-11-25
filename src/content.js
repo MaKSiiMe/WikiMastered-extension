@@ -713,6 +713,7 @@
     let state = "wait";
     let value = 0;
     let deal = null;
+    let skewed = false;
     const isFresh = fresh(entryPrices);
     if (entryPrices && (isFresh || usable(entryPrices))) {
       const q = entryPrices.q[rarity];
@@ -727,13 +728,17 @@
         const grey = Date.now() - entryPrices.at >= GREY_AFTER_MS;
         // Prix fiable (assez de ventes dans la semaine) : le chiffre seul ; sinon « ≈ », à prendre avec prudence.
         const sure = reliable(q, settings.minWeekSales);
-        [text, state, value] = [sure ? wb(q.avg) : `≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
+        // Prix faussé (une vente isolée hors de proportion) : le prix habituel, marqué « ⚠ » ; le chiffre du site au survol.
+        skewed = Boolean(q.skewed);
+        [text, state, value] = [q.skewed ? `⚠ ${wb(q.avg)}` : sure ? wb(q.avg) : `≈ ${wb(q.avg)}`, grey ? "old" : "ok", q.avg];
         // Marché : bonne affaire ou surcoté (#16, option), d'après la mise minimum de l'enchère affichée.
         const auction = settings.deals && onMarket() ? auctions.get(`${entry.id}|${rarity}`) : null;
         deal = auction && !shiny ? auctionDeal(auction, q.avg, sure) : null;
         const when = q.week >= currentWeek() ? "cette semaine" : `semaine du ${q.week.slice(8, 10)}/${q.week.slice(5, 7)}`;
         const by = entryPrices.by && entryPrices.by !== sharedStats.who ? ` par ${entryPrices.by}` : "";
         tip = `${rarity} · ${q.count} vente(s) ${when} · relevé il y a ${ago(Date.now() - entryPrices.at)}${by}`;
+        if (q.skewed) tip += `\nPrix faussé : le site affiche ${wb(q.skewed.avg)} (${q.skewed.count} vente(s) la semaine du ` +
+          `${q.skewed.week.slice(8, 10)}/${q.skewed.week.slice(5, 7)}, hors de proportion), écarté. Ici, le prix habituel.`;
         if (deal) tip += deal.kind === "deal" ? `\nBonne affaire : mise minimum ${-deal.pct} % sous le prix, fin bientôt.`
           : `\nSurcoté : mise minimum ${deal.pct} % au-dessus du prix.`;
       } else {
@@ -763,6 +768,7 @@
     el.dataset.dealKind = deal ? deal.kind : "";
     el.title = tip;
     el.dataset.state = state;
+    el.dataset.skewed = String(skewed);
     return value;
   }
 

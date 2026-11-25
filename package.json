@@ -1,6 +1,6 @@
 {
   "name": "wikimastered-extension",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "private": true,
   "description": "Extension de navigateur en lecture seule pour Wiki Masters : le prix moyen de chaque carte sur la page.",
   "scripts": {

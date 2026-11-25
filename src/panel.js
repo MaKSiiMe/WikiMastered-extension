@@ -167,7 +167,7 @@ async function pageView() {
     sharedLive(state.shared),
     limitsLog(state.limits),
     h("p", { className: "muted" }, "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté ; « ≈ » quand il " +
-      "repose sur trop peu de ventes. Au survol d'un badge : ventes, âge du relevé, qui l'a fait."),
+      "repose sur trop peu de ventes ; « ⚠ » quand une vente isolée hors de proportion fausse celui du site (prix habituel affiché). Au survol d'un badge : ventes, âge du relevé, qui l'a fait."),
   ];
 }
 

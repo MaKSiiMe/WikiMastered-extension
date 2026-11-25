@@ -21,7 +21,9 @@ const WME = (() => {
    * `sales12` : ventes de la rareté sur les 12 dernières semaines (semaine en cours comprise). `low4` / `high4` : plus
    * bas et plus haut des ventes des 4 dernières semaines (null sans vente) ; `prev` : moyenne de la semaine avec des
    * ventes d'avant celle du prix (null s'il n'y en a pas), pour la variation.
-   * -> { "SR": { avg, count, week: "2026-11-16", sales12, low4, high4, prev } }
+   * Semaine faussée (`skewedWeek`) : le prix est celui de la dernière semaine normale d'avant, et `skewed` garde le
+   * chiffre du site { avg, count, week }, pour le signaler (badge « ⚠ »).
+   * -> { "SR": { avg, count, week: "2026-11-16", sales12, low4, high4, prev, trend, skewed? } }
    */
   function quotes(history, now = new Date()) {
     const from = new Date(`${weekStart(now)}T00:00:00Z`);
@@ -35,10 +37,12 @@ const WME = (() => {
     for (const [rarity, series] of Object.entries(byRarity)) {
       const weekly = series && series.weekly;
       if (rank(rarity) < 0 || !Array.isArray(weekly)) continue;
-      const latest = weekly
+      const priced = weekly
         .filter((p) => p && Number(p.avg) > 0 && Number(p.count) > 0)
-        .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")))[0];
-      if (!latest) continue;
+        .sort((a, b) => String(b.start || "").localeCompare(String(a.start || "")));
+      if (!priced.length) continue;
+      const usual = skewedWeek(priced) ? priced.slice(1).find((p) => !outlier(p, priced)) : null;
+      const latest = usual || priced[0];
       const sold = weekly.filter((p) => p && Number(p.count) > 0);
       const sales12 = sold.filter((p) => String(p.start || "") >= cutoff).reduce((sum, p) => sum + Number(p.count), 0);
       const recent4 = sold.filter((p) => String(p.start || "") >= cutoff4);
@@ -54,9 +58,43 @@ const WME = (() => {
         low4: lows.length ? Math.min(...lows) : null, high4: highs.length ? Math.max(...highs) : null,
         prev: before ? Number(before.avg) : null, trend,
       };
+      if (usual) out[rarity].skewed = { avg: Number(priced[0].avg), count: Number(priced[0].count), week: String(priced[0].start || "") };
     }
     return out;
   }
+
+  /**
+   * Prix faussé : une semaine de moins de SKEW_MAX_SALES ventes dont la moyenne est plus de SKEW_FACTOR fois au-dessus
+   * ou au-dessous de la médiane des SKEW_REFERENCE_WEEKS dernières semaines avec ventes (chaque semaine pesant ses
+   * ventes). Le 24/11, une seule vente de 15 septembre SR à 8 067 faisait la semaine (le site affichait « +17 826 % »)
+   * contre ~40 les semaines d'avant. Une semaine très vendue reste : c'est une vraie tendance. Même règle que le bot
+   * (src/core/pricing.py, drop_outlier_weeks).
+   */
+  const SKEW_FACTOR = 3;
+  const SKEW_MAX_SALES = 10;
+  const SKEW_REFERENCE_WEEKS = 8;
+
+  function weightedMedian(points) {
+    const ordered = [...points].sort((a, b) => Number(a.avg) - Number(b.avg));
+    const half = ordered.reduce((sum, p) => sum + Number(p.count), 0) / 2;
+    let seen = 0;
+    for (const p of ordered) {
+      seen += Number(p.count);
+      if (seen >= half) return Number(p.avg);
+    }
+    return Number(ordered[ordered.length - 1].avg);
+  }
+
+  /** `point` est-elle une semaine aberrante, parmi `priced` (semaines avec ventes, la plus récente d'abord) ? */
+  function outlier(point, priced) {
+    const recent = priced.slice(0, SKEW_REFERENCE_WEEKS);
+    if (recent.length < 2 || Number(point.count) >= SKEW_MAX_SALES) return false;
+    const middle = weightedMedian(recent);
+    return Number(point.avg) > middle * SKEW_FACTOR || Number(point.avg) < middle / SKEW_FACTOR;
+  }
+
+  /** La semaine du prix (la plus récente avec ventes) est-elle faussée ? */
+  const skewedWeek = (priced) => priced.length > 1 && outlier(priced[0], priced);
 
   /** Semaines prises en compte pour juger un prix (comme Toolbox : 12, semaine en cours comprise). */
   const RECENT_WEEKS = 12;
