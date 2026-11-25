@@ -31,7 +31,6 @@ Le jeton de session du site n'est jamais enregistré par l'extension : il est lu
 
 Sur Firefox, chacune de ces options demande ton accord au moment où tu l'actives.
 
-- **Catégorie Wikipédia** (onglet Familles, sur demande) : le nom de catégorie que tu tapes est envoyé à l'API publique de Wikipédia, sans cookie, pour lister ses articles.
 
 ## Ce qu'elle ne fait pas
 

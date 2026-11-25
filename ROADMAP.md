@@ -29,7 +29,7 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] Tableau de bord : valeur totale et par rareté, cartes les plus chères, doublons, valeur du compte dans le temps (une mesure par jour). [#18](https://github.com/MaKSiiMe/WikiMastered-extension/issues/18) (0.7.0)
 - [x] Filtres cumulables qui manquent au site : doublons, sans image, GIF, étiquettes (avec / sans / l'une de), tranche de prix ; tri par valeur. (Toolbox) [#19](https://github.com/MaKSiiMe/WikiMastered-extension/issues/19) (0.9.0)
 - [x] Filtres par étiquette : plusieurs à la fois, ou sans étiquette, les miennes ou celles d'un ami (0.12.0), dans un menu déroulant (0.13.0). [#63](https://github.com/MaKSiiMe/WikiMastered-extension/issues/63) (0.10.1)
-- [x] Familles à compléter : cartes manquantes, leur prix, ajout depuis une catégorie Wikipédia (0.12.0), ajout à la liste de souhaits en un clic. (Toolbox, Prix moyen collection) [#20](https://github.com/MaKSiiMe/WikiMastered-extension/issues/20) (0.11.0)
+- [x] Familles à compléter : cartes manquantes, leur prix ; ajout depuis une catégorie Wikipédia (0.12.0, retiré en 0.14.0 : trop d'articles hors sujet). L'ajout à la liste de souhaits en un clic reste à faire. (Toolbox, Prix moyen collection) [#20](https://github.com/MaKSiiMe/WikiMastered-extension/issues/20) (0.11.0)
 - [x] Liste de souhaits avec le prix de chaque carte et le coût total ; ceux de mes amis qui peuvent l'échanger (0.13.0). [#21](https://github.com/MaKSiiMe/WikiMastered-extension/issues/21) (0.9.1)
 - [x] Repérage des doublons et de ce qu'ils valent, et mise en vente d'un exemplaire en trop (filtre Doublons, 0.12.0). (Mes doublons, Toolbox) [#22](https://github.com/MaKSiiMe/WikiMastered-extension/issues/22) (0.7.0)
 - [x] ~~Pastilles « Possédée ✓ » / « Nouvelle » sur le marché, les profils et le catalogue.~~ Retiré en 0.12.0 : le site a sa propre étiquette. [#45](https://github.com/MaKSiiMe/WikiMastered-extension/issues/45)
@@ -50,6 +50,9 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] Page d'options : réglages, taille des caches, vider les caches, sauvegarde / restauration JSON. (henchoznoe, BallenghienAlexis) [#27](https://github.com/MaKSiiMe/WikiMastered-extension/issues/27) (0.9.3)
 - [x] Panneau « Nouveautés » après une mise à jour, avec un bouton pour activer chaque nouvelle option. (Toolbox) [#28](https://github.com/MaKSiiMe/WikiMastered-extension/issues/28) (0.10.0)
 - [x] Panneau aux couleurs, polices et raretés du site, thème clair ou sombre comme lui. (0.13.0)
+- [x] Onglet Page selon la page du site : paquets restants partout, défausse du dernier paquet, collection, marché, profil d'un ami et offre d'échange, fiche d'une carte (amis qui l'ont, prochaines enchères), succès. (0.14.0)
+- [x] Défausse à l'ouverture des paquets, réglable (raretés, cote maximum, doublons seulement), coupée par défaut. (WikiMasters QoL) (0.14.0)
+- [ ] Guilde : les enchères des cartes souhaitées par la guilde (route du site à relever).
 - [ ] Confort à trier après essai de Toolbox : pastille du thème, favori et étiquettes pendant la révélation, récap dans la marge, son de notification, raccourcis de la popup. [#53](https://github.com/MaKSiiMe/WikiMastered-extension/issues/53)
 
 ### Publication
