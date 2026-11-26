@@ -22,9 +22,39 @@ const applyTheme = (theme) => document.documentElement.classList.toggle("light",
 chrome.storage.local.get("wmTheme").then(({ wmTheme }) => applyTheme(wmTheme));
 chrome.storage.onChanged.addListener((changes, area) => { if (area === "local" && changes.wmTheme) applyTheme(changes.wmTheme.newValue); });
 
-// Rareté en pastille aux couleurs du site ; « i » dont le texte s'affiche au survol.
+// Rareté en pastille aux couleurs du site.
 const rar = (rarity, shiny) => h("span", { className: `rar r-${String(rarity || "").toLowerCase()}` }, `${rarity || "?"}${shiny ? " ✦" : ""}`);
-const info = (text) => h("span", { className: "info", title: text, tabIndex: 0, ariaLabel: text }, "i");
+// « i » : la description d'une fonction, dans une bulle ouverte au clic (ou Entrée), fermée par un autre clic, un clic
+// ailleurs ou Échap. Un « \n » dans le texte fait un nouveau paragraphe. La bulle survit aux rafraîchissements de l'onglet.
+let openInfo = null; // { text, bubble }
+function closeInfo() {
+  if (!openInfo) return;
+  openInfo.bubble.remove();
+  openInfo = null;
+}
+function info(text) {
+  const icon = h("button", { type: "button", className: "info", title: "Explication", ariaLabel: "Explication" }, "i");
+  icon.addEventListener("click", (e) => {
+    e.preventDefault(); // dans un <label> : ne coche pas la case
+    e.stopPropagation();
+    const same = openInfo && openInfo.text === text;
+    closeInfo();
+    if (same) return;
+    const bubble = h("div", { className: "info-pop", role: "note" }, ...String(text).split("\n").map((line) => h("p", {}, line)));
+    document.body.append(bubble);
+    const r = icon.getBoundingClientRect();
+    const width = Math.min(340, window.innerWidth - 16);
+    bubble.style.width = `${width}px`;
+    bubble.style.left = `${Math.max(8, Math.min(r.left - 24, window.innerWidth - width - 8))}px`;
+    const below = r.bottom + 6;
+    const above = r.top - 6 - bubble.offsetHeight;
+    bubble.style.top = `${below + bubble.offsetHeight > window.innerHeight - 8 && above > 8 ? above : below}px`;
+    openInfo = { text, bubble };
+  });
+  return icon;
+}
+document.addEventListener("click", (e) => { if (openInfo && !openInfo.bubble.contains(e.target)) closeInfo(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeInfo(); });
 
 // replaceChildren sans les null / false / undefined des conditions (il les écrirait en texte).
 const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((c) => c !== null && c !== undefined && c !== false));
@@ -167,7 +197,9 @@ async function pageView() {
     p.kind === "achievements" ? achievementsBox(p.achievements) : null,
     h("h3", {}, "Prix sur la page"),
     h("p", { className: "big" }, `≈ ${wb(state.value)} WB`),
-    h("p", { className: "muted" }, `Valeur des ${state.tiles} carte(s) avec un badge sur la page`),
+    h("p", { className: "muted" }, `Valeur des ${state.tiles} carte(s) avec un badge sur la page`,
+      info("Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté.\n« ≈ » : il repose sur trop peu de ventes. « ⚠ » : une vente isolée " +
+        "hors de proportion fausse celui du site (le prix habituel est affiché).\nAu survol d'un badge : ventes, âge du relevé, qui l'a fait.")),
     ...state.trades.map((t) => h("p", { className: "trade" }, t)),
     h("p", {}, `${fr(state.known)} à jour · ${fr(state.old)} de plus de 24 h (grisés) · ${fr(state.waiting)} en attente`),
     h("p", { className: "muted" }, `Lectures sur 10 min : ${state.reads.history}/${state.readBudget} historiques · ` +
@@ -176,8 +208,6 @@ async function pageView() {
     ...state.pauses.map((x) => h("p", { className: "warn" }, `Pause : ${x.reason}, jusqu'à ${time(x.until)}.`)),
     sharedLive(state.shared),
     limitsLog(state.limits),
-    h("p", { className: "muted" }, "Prix = le « Prix moyen de la semaine » de la fiche de la carte, dans sa rareté ; « ≈ » quand il " +
-      "repose sur trop peu de ventes ; « ⚠ » quand une vente isolée hors de proportion fausse celui du site (prix habituel affiché). Au survol d'un badge : ventes, âge du relevé, qui l'a fait."),
   ];
 }
 
@@ -345,12 +375,11 @@ function draftView(d) {
     (d.pct !== null ? ` (${d.gap > 0 ? "+" : "−"}${Math.abs(d.pct)} %)` : "");
   const even = Math.abs(d.gap) < 1 ? null : d.gap > 0 ? `Pour équilibrer : ajoute ≈ ${wb(d.gap)} WB de ton côté.` : `Pour équilibrer : demande ≈ ${wb(-d.gap)} WB à ${d.friend}.`;
   return h("div", { className: "box" },
-    h("h3", {}, `Offre à ${d.friend}`),
+    h("h3", {}, `Offre à ${d.friend}`, info("Prix moyen du site dans la rareté de chaque carte. Les shiny n'ont pas de prix.")),
     ...side("Tu donnes", d.give, "Mes cartes"),
     ...side("Tu reçois", d.get, `Cartes de ${d.friend}`),
     h("p", { className: d.gap >= 0 ? "good" : "error" }, h("b", {}, verdict)),
-    even ? h("p", {}, even) : null,
-    h("p", { className: "muted" }, "Prix moyen du site dans la rareté de chaque carte. Les shiny n'ont pas de prix."));
+    even ? h("p", {}, even) : null);
 }
 
 function sharedLive(shared) {
@@ -407,7 +436,8 @@ async function collectionView(first) {
   const missingRare = ["L", "UR", "SR"].reduce((n, r) => n + (s.missing[r] || 0), 0);
   return [
     readLine(s),
-    h("p", { className: "big" }, `≈ ${fr(sum.value)} WB`),
+    h("p", { className: "big" }, `≈ ${fr(sum.value)} WB`, info("Seuls les prix connus comptent. Ils viennent des pages que tu ouvres, du serveur " +
+      "partagé et du bouton « Lire les prix manquants » (après les cartes affichées, dans le quota habituel).")),
     h("p", { className: "muted" }, `${fr(sum.copies)} exemplaire(s) · ${fr(sum.distinct)} carte(s) · ${fr(sum.unsure)} au prix incertain · ` +
       `${fr(sum.unpriced)} sans prix connu (shiny compris)`),
     s.sharedFill && h("p", { className: "muted" }, s.sharedFill),
@@ -424,8 +454,6 @@ async function collectionView(first) {
         e.target.textContent = reply.ok ? `${fr(reply.count)} carte(s) en file : les prix arrivent au fil des minutes` : reply.error;
       } },
     }, missingRare ? `Lire les prix manquants des L, UR, SR (${fr(missingRare)})` : "Tous les prix des L, UR, SR sont connus"),
-    h("p", { className: "muted" }, "Seuls les prix connus comptent. Ils viennent des pages que tu ouvres, du serveur partagé " +
-      "et de ce bouton (après les cartes affichées, dans le quota habituel)."),
     h("h3", {}, "Mes cartes les plus chères"),
     h("table", {}, ...sum.top.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
       h("td", { className: "num" }, `${c.sure ? "" : "≈ "}${wb(c.price)}`)))),
@@ -555,21 +583,20 @@ async function autoTagBox() {
     }
   };
   tagsBox = h("div", { className: "box" },
-    h("h3", {}, "Étiquettes automatiques"),
+    h("h3", {}, "Étiquettes automatiques", info("Rien n'est écrit avant « Poser » : l'aperçu montre quelles cartes reçoivent quelle étiquette.\n" +
+      "Les étiquettes cochées qui n'existent pas encore sur ton compte sont créées par l'extension à ce moment-là ; tu peux aussi les créer " +
+      "toi-même sur le site, avec le même nom. Ensuite, change leur couleur ou ajoute un émoji si tu veux : elles restent reconnues (émojis et " +
+      "majuscules ignorés), mais pas si tu les renommes.\nL'exemplaire étiqueté est le favori, sinon la shiny, sinon la plus haute rareté, puis " +
+      "le plus ancien. L'extension ne retire que « Doublon » et « GIF » quand elles ne vont plus.\nLes thèmes viennent de Wikipédia et Wikidata " +
+      "(seuls les titres de tes cartes leur sont envoyés). Le premier aperçu prend quelques minutes, jusqu'à une demi-heure pour une très grande " +
+      "collection, page du site ouverte ; interrompu, il reprend où il s'était arrêté, et ensuite seules les nouvelles cartes sont lues.")),
     h("p", { className: "muted" }, "Thèmes, d'après Wikidata (sur un exemplaire de chaque carte) :"),
     h("div", {}, ...themes.map(themeBox)),
     check("duplicate", " « Doublon » sur les exemplaires en trop"),
     check("gif", " « GIF » sur un exemplaire de chaque carte animée"),
     check("auto", " Poser toute seule toutes les 6 h, sans aperçu (une page du site ouverte)"),
     missingLine,
-    previewButton, status, result,
-    h("p", { className: "muted" }, "Rien n'est écrit avant « Poser ». Les étiquettes cochées qui n'existent pas encore sur ton compte sont " +
-      "créées par l'extension à ce moment-là ; tu peux aussi les créer toi-même sur le site, avec le même nom. Ensuite, change leur couleur ou " +
-      "ajoute un émoji si tu veux : elles restent reconnues (émojis et majuscules ignorés), mais pas si tu les renommes. L'exemplaire étiqueté " +
-      "est le favori, sinon la shiny, sinon la plus haute rareté, puis le plus ancien. L'extension ne retire que « Doublon » et « GIF » quand " +
-      "elles ne vont plus. Les thèmes viennent de Wikipédia et Wikidata (seuls les titres de tes cartes leur sont envoyés) : le premier aperçu " +
-      "prend quelques minutes, jusqu'à une demi-heure pour une très grande collection, page du site ouverte ; interrompu, il reprend où il " +
-      "s'était arrêté, et ensuite seules les nouvelles cartes sont lues."));
+    previewButton, status, result);
   tagsBox.follow = follow;
   follow();
   return tagsBox;
@@ -667,7 +694,8 @@ async function bulkDiscardBox() {
       go);
   };
   bulkBox = h("div", { className: "box" },
-    h("h3", {}, "Défausse en masse"),
+    h("h3", {}, "Défausse en masse", info("Jamais un favori. Une shiny compte comme une L, au prix de la carte ordinaire (le site n'a pas de prix " +
+      "shiny) : marquée ✦ dans l'aperçu.\nPrix : celui du badge, dans la rareté de la carte.")),
     h("div", {}, h("span", { className: "muted" }, "Raretés : "), ...RARITY_CODES.map((code) => h("label", { className: "inline" },
       h("input", { type: "checkbox", checked: r.rarities.includes(code), on: { change: (e) => {
         r.rarities = e.target.checked ? [...r.rarities, code] : r.rarities.filter((x) => x !== code);
@@ -679,8 +707,7 @@ async function bulkDiscardBox() {
     check("keepOne", " Garder au moins un exemplaire de chaque carte (le plus rare, la shiny avant la L)"),
     check("neverSold", " Défausser aussi les cartes jamais vendues dans leur rareté"),
     h("button", { className: "act", on: { click: preview } }, "Voir les cartes"),
-    result, status,
-    h("p", { className: "muted" }, "Jamais un favori. Une shiny compte comme une L, au prix de la carte ordinaire (le site n'a pas de prix shiny) : marquée ✦ dans l'aperçu. Prix : celui du badge, dans la rareté de la carte."));
+    result, status);
   bulkBox.follow = follow;
   follow();
   return bulkBox;
@@ -743,9 +770,7 @@ async function filtersView() {
   const friendBox = h("div", { className: "box", hidden: c.source === "me" },
     h("p", { className: "muted" }, "Raretés à lire (une page de 50 cartes par seconde : les L seules vont vite) :"),
     h("div", {}, ...rarityChips("friendRarities")), readButton, friendStatus,
-    h("label", {}, h("input", { type: "checkbox", checked: Boolean(c.notMine), on: { change: (e) => { c.notMine = e.target.checked; } } }), " Seulement celles que je n'ai pas"),
-    h("p", { className: "muted" }, "Avec « Dans ma liste de souhaits », pas besoin de lire sa collection : l'extension part de tes souhaits et " +
-      "demande au site lesquels il ou elle possède (quelques secondes, quelle que soit la taille de sa collection)."));
+    h("label", {}, h("input", { type: "checkbox", checked: Boolean(c.notMine), on: { change: (e) => { c.notMine = e.target.checked; } } }), " Seulement celles que je n'ai pas"));
 
   // Étiquettes de la collection choisie, dans un menu déroulant : toutes celles choisies sont exigées (« Lieu » et
   // « Religion » : temples, églises…). « Sans étiquette » exclut les autres.
@@ -840,7 +865,11 @@ async function filtersView() {
     const canSell = mine && await labActive("sellPanel");
     fill(results, 
       reply.source && h("p", { className: "muted" }, `Collection de ${reply.source}`),
-      h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${fr(reply.items.length)} premières : menu « Afficher » pour plus)` : ""}`),
+      h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${fr(reply.items.length)} premières : menu « Afficher » pour plus)` : ""}`,
+        info("« ? » : prix pas encore lu (onglet Collection pour lire les prix manquants). 🔒 : favori, que le site ne laisse ni vendre ni échanger." +
+          (canSell ? "\n« Vendre » : pour une carte en plusieurs exemplaires, un exemplaire de cette rareté qui n'est ni favori ni shiny." : "") +
+          (reply.unsure ? "\n« favori ? » : le site ne dit pas si son exemplaire est un favori ; « Lire sa collection » le vérifie." : "") +
+          (reply.items.some((i) => i.copies === null) ? "\n« — » : nombre d'exemplaires inconnu sans lire sa collection." : ""))),
       h("table", {}, h("tr", {}, h("th", {}, "Carte"), h("th", {}, "Rareté"), h("th", { className: "num" }, "Ex."), h("th", { className: "num" }, "Prix"), mine ? h("th", {}) : null),
         ...reply.items.map((i) => {
           const cell = h("td", {});
@@ -850,15 +879,13 @@ async function filtersView() {
             h("td", { className: "num" }, i.copies === null ? "—" : fr(i.copies)), h("td", { className: "num" }, label(i)), mine ? cell : null);
           if (canSell && i.sellCopy) cell.append(h("button", { className: "act small", title: "Mettre un exemplaire en vente", on: { click: () => sellForm(i, row, cell) } }, "Vendre"));
           return row;
-        })),
-      h("p", { className: "muted" }, "« ? » : prix pas encore lu (onglet Collection pour lire les prix manquants). 🔒 : favori, que le site ne laisse ni vendre ni échanger." +
-        (canSell ? " « Vendre » : pour une carte en plusieurs exemplaires, un exemplaire de cette rareté qui n'est ni favori ni shiny." : "") +
-        (reply.unsure ? " « favori ? » : le site ne dit pas si son exemplaire est un favori ; « Lire sa collection » le vérifie." : "") +
-        (reply.items.some((i) => i.copies === null) ? " « — » : nombre d'exemplaires inconnu sans lire sa collection." : "")));
+        })));
   };
   return [
     h("label", {}, "Dans ", source), friendBox,
-    h("div", {}, check("duplicates", "Doublons"), check("noImage", "Sans image"), check("gif", "GIF"), check("wished", "Dans ma liste de souhaits")),
+    h("div", {}, check("duplicates", "Doublons"), check("noImage", "Sans image"), check("gif", "GIF"), check("wished", "Dans ma liste de souhaits"),
+      info("Chez un ami, pas besoin de lire sa collection : l'extension part de tes souhaits et demande au site lesquels il ou elle possède " +
+        "(quelques secondes, quelle que soit la taille de sa collection).")),
     h("div", {}, ...rarityChips("rarities")),
     text,
     h("div", {}, price, range),
@@ -925,7 +952,10 @@ async function wishesView() {
     pruneBox,
     h("p", { className: "big" }, `≈ ${fr(s.total)} WB`),
     h("p", { className: "muted" }, `${s.items.length} carte(s) souhaitée(s) · ${s.priced} avec un prix (le plus bas connu, toutes raretés) · ` +
-      `${s.never} jamais vendue(s) · ${s.unknown} prix pas encore lu(s)` + (f.given ? ` · ${free} chez un ami` : "")),
+      `${s.never} jamais vendue(s) · ${s.unknown} prix pas encore lu(s)` + (f.given ? ` · ${free} chez un ami` : ""),
+      info("« ✓ » : tu as déjà la carte (dans une autre rareté, sans doute).\nChez mes amis : ceux qui l'ont, avec les raretés qu'ils peuvent " +
+        "t'échanger (pas en favori). 🔒 : seulement en favori. « ? » : le site ne dit pas si c'est un favori ; lire sa collection dans l'onglet " +
+        "Filtres le vérifie.\nRelu toutes les 30 min.")),
     friendsLine,
     h("div", {},
       h("button", { className: "act", disabled: !s.unknown, on: { click: async (e) => {
@@ -942,9 +972,6 @@ async function wishesView() {
           h("td", { className: "num" }, i.cheapest ? [rar(i.cheapest.rarity), ` ${wb(i.cheapest.avg)}`] : i.state === "never" ? "jamais vendue" : "?"),
           h("td", {}, owners(f.given ? i.friends : null)));
       })),
-    h("p", { className: "muted" }, "« ✓ » : tu as déjà la carte (dans une autre rareté, sans doute). Chez mes amis : ceux qui l'ont, avec les raretés " +
-      "qu'ils peuvent t'échanger (pas en favori). 🔒 : seulement en favori. « ? » : le site ne dit pas si c'est un favori ; lire sa " +
-      "collection dans l'onglet Filtres le vérifie. Relu toutes les 30 min."),
   ];
 }
 
@@ -975,7 +1002,8 @@ function discardSettings(rules) {
   const max = h("input", { type: "number", min: 0, step: 1, value: r.maxPrice ?? "", placeholder: "sans limite", className: "small wide-small",
     on: { change: () => { r.maxPrice = max.value === "" ? null : Math.max(0, Math.round(Number(max.value))); save(); } } });
   return h("div", { className: "box" },
-    h("h3", {}, "Défausse à l'ouverture des paquets (active)"),
+    h("h3", {}, "Défausse à l'ouverture des paquets (active)", info("Jamais une shiny. Avec une cote maximum, une carte dont le prix n'est pas " +
+      "encore connu attend sa lecture (2 min au plus) puis est gardée.\nPour l'arrêter : Réglages, Fonctionnalités expérimentales.")),
     h("div", {}, h("span", { className: "muted" }, "Raretés : "), ...RARITY_CODES.map((code) => h("label", { className: "inline" },
       h("input", { type: "checkbox", checked: r.rarities.includes(code), on: { change: (e) => {
         r.rarities = e.target.checked ? [...r.rarities, code] : r.rarities.filter((x) => x !== code);
@@ -983,9 +1011,7 @@ function discardSettings(rules) {
       } } }), " ", rar(code)))),
     h("label", {}, "Cote au plus ", max, " WB"),
     h("label", {}, h("input", { type: "checkbox", checked: r.duplicatesOnly, on: { change: (e) => { r.duplicatesOnly = e.target.checked; save(); } } }),
-      " Seulement les doublons (une carte que j'avais déjà, ou un 2ᵉ exemplaire dans le même paquet)"),
-    h("p", { className: "muted" }, "Jamais une shiny. Avec une cote maximum, une carte dont le prix n'est pas encore connu attend sa lecture " +
-      "(2 min au plus) puis est gardée. Pour l'arrêter : Réglages, Fonctionnalités expérimentales."));
+      " Seulement les doublons (une carte que j'avais déjà, ou un 2ᵉ exemplaire dans le même paquet)"));
 }
 
 // Le dernier paquet (#23) : chaque carte, nouvelle ou doublon, son prix, et la valeur du paquet.
@@ -1157,8 +1183,8 @@ function sellLive(m) {
 // de départ proposé : la cote). Même règle que l'onglet Filtres : jamais un favori ni un shiny.
 async function sellStatic() {
   const reply = await ask("panel", { action: "filter", criteria: { source: "me", duplicates: true, sort: "value-desc", price: "all", rarities: [], tags: [] } });
-  const head = [h("h3", {}, "Doublons à vendre"), h("p", { className: "muted" }, "Un exemplaire en trop (ni favori ni shiny), mis aux enchères " +
-    "comme avec le bouton du site. Prix de départ proposé : la cote de la carte dans sa rareté.")];
+  const head = [h("h3", {}, "Doublons à vendre", info("Un exemplaire en trop (ni favori ni shiny), mis aux enchères comme avec le bouton du " +
+    "site.\nPrix de départ proposé : la cote de la carte dans sa rareté."))];
   if (!reply.ok) return [...head, h("p", { className: "error" }, reply.error)];
   const items = reply.items.filter((i) => i.sellCopy).slice(0, 25);
   if (!items.length) return [...head, h("p", { className: "muted" }, "Aucun doublon à vendre.")];
@@ -1191,7 +1217,8 @@ async function settingsView() {
       const box = e.target;
       requestAccess([]).then((granted) => (granted ? ask("images", { on: true }) : (box.checked = false)), () => { box.checked = false; });
     } } }),
-      " Images Wikipédia pour les cartes sans image (le titre de ces cartes est envoyé à Wikipédia, sans rien d'autre)"),
+      " Images Wikipédia pour les cartes sans image", info("Une carte sans image reçoit la vignette de son article Wikipédia. Seul le titre de ces cartes " +
+        "est envoyé à Wikipédia, sans rien d'autre. Jamais pour une image masquée par le site.")),
     h("label", {}, "Prix fiable à partir de ", minSales, " vente(s) dans la semaine (sinon « ≈ »)"),
     h("h3", {}, "Cache des prix"),
     h("button", { className: "act", on: { click: async (e) => {
@@ -1211,18 +1238,14 @@ async function settingsView() {
 
 async function sharedSection() {
   return [
-    h("h3", {}, "Prix partagés"),
-    h("p", { className: "muted" }, "Le principe : les participants mettent en commun les prix qu'ils lisent. Quand ton extension lit le prix d'une " +
-      "carte sur le site, elle le dépose sur un petit serveur ; quand il lui faut un prix qu'un autre participant a lu depuis " +
-      "moins de 6 h, elle le reçoit de ce serveur au lieu de le relire."),
-    h("p", { className: "muted" }, "Pourquoi : le site limite la lecture des prix à environ 90 cartes toutes les 10 minutes, par compte. Seul, " +
-      "chiffrer une grande collection prend des heures ; à plusieurs, chacun en lit une partie et profite du reste. Le site reçoit aussi " +
-      "moins de requêtes."),
-    h("p", { className: "muted" }, "Ce qui part : l'identifiant de chaque carte et son historique de prix, celui que le site montre à tout le " +
-      "monde. Ni ton pseudo, ni tes cookies, ni ta collection. Le jeton dit seulement qui a déposé quoi, pour pouvoir écarter un participant " +
-      "qui enverrait de faux prix."),
-    h("p", { className: "muted" }, "Pour l'instant c'est un essai entre quelques joueurs : l'adresse du serveur et ton jeton se demandent au " +
-      "développeur de l'extension. Sans eux, tout marche pareil, en lisant chaque prix toi-même."),
+    h("h3", {}, "Prix partagés", info("Le principe : les participants mettent en commun les prix qu'ils lisent. Quand ton extension lit le prix " +
+      "d'une carte sur le site, elle le dépose sur un petit serveur ; quand il lui faut un prix qu'un autre participant a lu depuis moins de 6 h, " +
+      "elle le reçoit de ce serveur au lieu de le relire.\nPourquoi : le site limite la lecture des prix à environ 90 cartes toutes les 10 minutes, " +
+      "par compte. Seul, chiffrer une grande collection prend des heures ; à plusieurs, chacun en lit une partie et profite du reste. Le site " +
+      "reçoit aussi moins de requêtes.\nCe qui part : l'identifiant de chaque carte et son historique de prix, celui que le site montre à tout le " +
+      "monde. Ni ton pseudo, ni tes cookies, ni ta collection. Le jeton dit seulement qui a déposé quoi, pour pouvoir écarter un participant qui " +
+      "enverrait de faux prix.\nPour l'instant c'est un essai entre quelques joueurs : l'adresse du serveur et ton jeton se demandent au " +
+      "développeur de l'extension. Sans eux, tout marche pareil, en lisant chaque prix toi-même.")),
     await sharedSettings(),
   ];
 }
@@ -1246,7 +1269,7 @@ async function labsSection() {
         await save({ unlocked: now.unlocked.filter((x) => x !== lab.id), on: now.on.filter((x) => x !== lab.id) });
         drawList();
       } } }, "Retirer");
-      return h("div", {}, h("label", {}, box, ` ${lab.label} `, forget), h("p", { className: "muted" }, lab.detail));
+      return h("div", {}, h("label", {}, box, ` ${lab.label}`, info(lab.detail), " ", forget));
     }));
   };
   const input = h("input", { type: "text", className: "wide", autocomplete: "off", spellcheck: false, ariaLabel: "Fonctionnalité expérimentale",
@@ -1343,9 +1366,8 @@ async function dataSection() {
     h("table", {}, ...rows, h("tr", {}, h("td", {}, h("b", {}, "Total")), h("td", { className: "num" }, kb(total)), h("td", {}))),
     h("button", { className: "act", on: { click: exportData } }, "Sauvegarder (JSON)"), " ",
     h("button", { className: "act", on: { click: () => picker.click() } }, "Restaurer…"), picker,
-    h("p", { className: "muted" }, "À quoi sert la sauvegarde : changer de navigateur ou d'ordinateur, ou réinstaller l'extension, sans " +
-      "perdre ce que le site ne garde pas : ton récap des paquets, ta courbe de valeur et tes réglages. Les prix et la " +
-      "collection se relisent d'eux-mêmes."),
+    info("À quoi sert la sauvegarde : changer de navigateur ou d'ordinateur, ou réinstaller l'extension, sans perdre ce que le site ne garde " +
+      "pas : ton récap des paquets, ta courbe de valeur et tes réglages. Les prix et la collection se relisent d'eux-mêmes."),
     status);
 }
 
