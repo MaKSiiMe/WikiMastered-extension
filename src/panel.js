@@ -94,6 +94,7 @@ async function newsView() {
   chrome.action.setBadgeText({ text: "" }).catch(() => {});
   newsButton.classList.remove("dot");
   const state = await ask("state");
+  if (!WME_NEWS.length) return h("p", { className: "muted" }, "Rien de nouveau pour l'instant.");
   return WME_NEWS.map((release) => h("div", { className: "box" },
     h("h3", {}, `Version ${release.version}`, versionValue(release.version) > versionValue(wmNewsSeen) ? h("span", { className: "new" }, " · nouveau pour toi") : null),
     ...release.items.map((item) => h("p", {}, item.text, " ",
