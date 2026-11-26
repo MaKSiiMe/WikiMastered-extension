@@ -11,11 +11,13 @@
 //   { type: "shared-stats" }                 -> { who, fresh_cards, days }
 // En cas d'échec : { error }.
 const SHARED_KEY = "shared"; // { on, url, token }, écrit par le panneau
+const LABS_KEY = "wmLabs"; // fonctionnalités expérimentales { unlocked, on } : le partage en est une (src/lib.js, LABS)
 const TIMEOUT_MS = 8000;
 
 async function config() {
-  const { [SHARED_KEY]: shared } = await chrome.storage.local.get(SHARED_KEY);
-  return shared && shared.on && shared.url && shared.token ? shared : null;
+  const { [SHARED_KEY]: shared, [LABS_KEY]: labs } = await chrome.storage.local.get([SHARED_KEY, LABS_KEY]);
+  const lab = Boolean(labs && Array.isArray(labs.unlocked) && Array.isArray(labs.on) && labs.unlocked.includes("shared") && labs.on.includes("shared"));
+  return lab && shared && shared.on && shared.url && shared.token ? shared : null;
 }
 
 async function call(path, init = {}) {

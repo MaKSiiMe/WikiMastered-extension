@@ -71,6 +71,15 @@ async function ask(type, extra) {
   }
 }
 
+// Fonctionnalités expérimentales (src/lib.js, LABS) : débloquées par un code, puis cochées. Lu dans le stockage, pas
+// par l'onglet du site, pour que les onglets qui n'interrogent pas son état sachent quoi montrer.
+const LABS_KEY = "wmLabs";
+async function readLabs() {
+  const { [LABS_KEY]: labs } = await chrome.storage.local.get(LABS_KEY);
+  return { unlocked: [], on: [], ...(labs || {}) };
+}
+const labActive = async (id) => WME.labOn(await readLabs(), id);
+
 // ------------------------------------------------------------------ Nouveautés (#28) : bouton en haut du panneau,
 // avec un point tant qu'une mise à jour n'a pas été vue. Les versions plus récentes que la dernière vue sont marquées.
 const newsButton = document.getElementById("news");
@@ -211,9 +220,10 @@ function sheetBox(sh) {
 // /pulls : le dernier paquet, avec la défausse carte par carte ou des doublons d'un coup.
 function pullsBox(pack, state) {
   const rules = state.autoDiscard || {};
+  const purge = WME.labOn(state.labs, "purge");
   const limit = rules.maxPrice !== null && rules.maxPrice !== undefined ? ", jusqu’à " + fr(rules.maxPrice) + " WB" : "";
-  const auto = rules.on ? "Défausse auto : " + ((rules.rarities || []).join(", ") || "aucune rareté") + limit + (rules.duplicatesOnly ? ", doublons seulement." : ".")
-    : "Défausse auto coupée (onglet Paquets).";
+  const auto = WME.labOn(state.labs, "autodiscard")
+    ? "Défausse auto : " + ((rules.rarities || []).join(", ") || "aucune rareté") + limit + (rules.duplicatesOnly ? ", doublons seulement." : ".") : "";
   const discard = async (cards) => {
     const what = cards.length === 1 ? `« ${cards[0].title} » (${cards[0].rarity})` : `${cards.length} cartes : ${cards.map((c) => c.title).join(", ")}`;
     if (!await dialog({ title: "Défausser", lines: [`${what}, contre 1 WB chacune.`, "Une carte défaussée disparaît de ta collection : c'est définitif."], ok: "Défausser" })) return;
@@ -222,7 +232,7 @@ function pullsBox(pack, state) {
     draw(false);
   };
   const out = [h("h3", {}, pack ? `Dernier paquet · ${time(pack.at)}` : "Dernier paquet")];
-  if (!pack) out.push(h("p", { className: "muted" }, "Ouvre un paquet : ses cartes s'affichent ici, avec un bouton pour les défausser."));
+  if (!pack) out.push(h("p", { className: "muted" }, `Ouvre un paquet : ses cartes s'affichent ici${purge ? ", avec un bouton pour les défausser" : ""}.`));
   else {
     const seenIds = new Set();
     const isDouble = (c) => { const again = seenIds.has(c.title + c.rarity); seenIds.add(c.title + c.rarity); return c.wasOwned === true || again; };
@@ -231,10 +241,10 @@ function pullsBox(pack, state) {
     out.push(h("table", {}, ...rows.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity, c.shiny)),
       h("td", { className: c.double ? "muted" : "new" }, c.wasOwned === undefined && !c.double ? "" : c.double ? "Doublon" : "Nouvelle"),
       h("td", { className: "num" }, c.price === null ? "—" : wb(c.price)),
-      h("td", {}, c.discarded ? h("span", { className: "muted" }, "défaussée") : c.shiny ? "" : h("button", { className: "act small", on: { click: () => discard([c]) } }, "Défausser"))))),
-    doubles.length > 1 ? h("button", { className: "act", on: { click: () => discard(doubles) } }, `Défausser les ${doubles.length} doublons de ce paquet`) : null);
+      h("td", {}, c.discarded ? h("span", { className: "muted" }, "défaussée") : c.shiny || !purge ? "" : h("button", { className: "act small", on: { click: () => discard([c]) } }, "Défausser"))))),
+    purge && doubles.length > 1 ? h("button", { className: "act", on: { click: () => discard(doubles) } }, `Défausser les ${doubles.length} doublons de ce paquet`) : null);
   }
-  out.push(h("p", { className: "muted" }, auto), state.discardError ? h("p", { className: "warn" }, `Défausse auto arrêtée : ${state.discardError}`) : null,
+  out.push(auto && h("p", { className: "muted" }, auto), state.discardError ? h("p", { className: "warn" }, `Défausse auto arrêtée : ${state.discardError}`) : null,
     state.discards && state.discards.length ? h("p", { className: "muted" }, "Dernières défausses : " +
       state.discards.slice(0, 5).map((d) => `${d.title} ${d.rarity}${d.auto ? " (auto)" : ""}`).join(" · ")) : null);
   return h("div", { className: "box" }, ...out);
@@ -418,7 +428,7 @@ async function collectionView(first) {
     h("h3", {}, "Mes cartes les plus chères"),
     h("table", {}, ...sum.top.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
       h("td", { className: "num" }, `${c.sure ? "" : "≈ "}${wb(c.price)}`)))),
-    await bulkDiscardBox(),
+    (await labActive("purge")) ? await bulkDiscardBox() : null,
   ];
 }
 
@@ -684,6 +694,7 @@ async function filtersView() {
     // Tous les exemplaires de la carte (doublons) : « L · UR ×2 · SR✦ », 🔒 pour les favoris (verrouillés par le site).
     const variants = (i) => i.variants.map((v) => `${v.rarity}${v.shiny ? "✦" : ""}${v.copies > 1 ? ` ×${v.copies}` : ""}${v.starred ? " 🔒" : ""}`).join(" · ");
     const mine = c.source === "me";
+    const canSell = mine && await labActive("sell");
     fill(results, 
       reply.source && h("p", { className: "muted" }, `Collection de ${reply.source}`),
       h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${reply.items.length} premières)` : ""}`),
@@ -694,11 +705,11 @@ async function filtersView() {
             h("td", {}, i.title, i.variants.length > 1 || i.copies > 1 ? h("div", { className: "muted" }, variants(i)) : null),
             h("td", {}, rar(i.rarity, i.shiny), i.starred ? " 🔒" : "", i.unsure ? h("span", { className: "muted", title: "Le site ne dit pas si c'est un favori" }, " favori ?") : ""),
             h("td", { className: "num" }, i.copies === null ? "—" : fr(i.copies)), h("td", { className: "num" }, label(i)), mine ? cell : null);
-          if (mine && i.sellCopy) cell.append(h("button", { className: "act small", title: "Mettre un exemplaire en vente", on: { click: () => sellForm(i, row, cell) } }, "Vendre"));
+          if (canSell && i.sellCopy) cell.append(h("button", { className: "act small", title: "Mettre un exemplaire en vente", on: { click: () => sellForm(i, row, cell) } }, "Vendre"));
           return row;
         })),
       h("p", { className: "muted" }, "« ? » : prix pas encore lu (onglet Collection pour lire les prix manquants). 🔒 : favori, que le site ne laisse ni vendre ni échanger." +
-        (mine ? " « Vendre » : pour une carte en plusieurs exemplaires, un exemplaire de cette rareté qui n'est ni favori ni shiny." : "") +
+        (canSell ? " « Vendre » : pour une carte en plusieurs exemplaires, un exemplaire de cette rareté qui n'est ni favori ni shiny." : "") +
         (reply.unsure ? " « favori ? » : le site ne dit pas si son exemplaire est un favori ; « Lire sa collection » le vérifie." : "") +
         (reply.items.some((i) => i.copies === null) ? " « — » : nombre d'exemplaires inconnu sans lire sa collection." : "")));
   };
@@ -778,35 +789,19 @@ async function packsView() {
   const timer = setInterval(() => (live.isConnected ? refresh() : clearInterval(timer)), 2e3);
   return [
     live,
-    discardSettings(state.autoDiscard || {}),
-    h("h3", {}, "Automatisation par clic (désactivée par défaut)"),
-    h("p", { className: "muted" }, "Elle ne change jamais de page sous tes yeux : elle attend 5 min sans clic, frappe ni défilement. Les " +
-      "règles de Wiki Masters l'interdisent : un avertissement est demandé avant de l'activer."),
-    riskyToggle(state.autoClickPack, "autoClickPack", "Ouverture auto des paquets (/pulls)"),
-    riskyToggle(state.autoUnblockMarket, "autoUnblockMarket", "Tentative de déblocage du marché (/collection) : met une vraie enchère"),
+    WME.labOn(state.labs, "autodiscard") ? discardSettings(state.autoDiscard || {}) : null,
   ];
 }
 
-// Défausse automatique à l'ouverture d'un paquet (src/content.js, autoDiscard) : coupée par défaut, avertissement avant
-// de l'activer. Chaque changement est enregistré tout de suite.
+// Défausse automatique à l'ouverture d'un paquet (src/content.js, autoDiscard) : fonctionnalité expérimentale, active
+// dès qu'elle est cochée dans Réglages. Ici, ses règles ; chaque changement est enregistré tout de suite.
 function discardSettings(rules) {
-  const r = { on: false, rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true, ...rules };
+  const r = { rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true, ...rules };
   const save = () => ask("autoDiscard", { rules: r });
-  const on = h("input", { type: "checkbox", checked: Boolean(r.on), on: { change: async () => {
-    if (on.checked && !await dialog({
-      title: "Défausse automatique",
-      lines: ["À chaque paquet ouvert, les cartes qui répondent à tes règles sont défaussées tout de suite, contre 1 WB chacune. " +
-        "Une carte défaussée disparaît de ta collection : c'est définitif.",
-      "C'est une action faite par l'extension à ta place : les règles de Wiki Masters interdisent l'automatisation, et tu en es seul responsable."],
-      check: "J'ai compris : les cartes défaussées sont perdues.", ok: "Activer", cancel: "Laisser coupée" })) { on.checked = false; return; }
-    r.on = on.checked;
-    save();
-  } } });
   const max = h("input", { type: "number", min: 0, step: 1, value: r.maxPrice ?? "", placeholder: "sans limite", className: "small wide-small",
     on: { change: () => { r.maxPrice = max.value === "" ? null : Math.max(0, Math.round(Number(max.value))); save(); } } });
   return h("div", { className: "box" },
-    h("h3", {}, "Défausse à l'ouverture des paquets"),
-    h("label", {}, on, " Défausser automatiquement les cartes qui répondent à ces règles"),
+    h("h3", {}, "Défausse à l'ouverture des paquets (active)"),
     h("div", {}, h("span", { className: "muted" }, "Raretés : "), ...RARITY_CODES.map((code) => h("label", { className: "inline" },
       h("input", { type: "checkbox", checked: r.rarities.includes(code), on: { change: (e) => {
         r.rarities = e.target.checked ? [...r.rarities, code] : r.rarities.filter((x) => x !== code);
@@ -816,33 +811,7 @@ function discardSettings(rules) {
     h("label", {}, h("input", { type: "checkbox", checked: r.duplicatesOnly, on: { change: (e) => { r.duplicatesOnly = e.target.checked; save(); } } }),
       " Seulement les doublons (une carte que j'avais déjà, ou un 2ᵉ exemplaire dans le même paquet)"),
     h("p", { className: "muted" }, "Jamais une shiny. Avec une cote maximum, une carte dont le prix n'est pas encore connu attend sa lecture " +
-      "(2 min au plus) puis est gardée. À la main : onglet Page sur la page des paquets, un bouton par carte."));
-}
-
-// Automatisation : avant de l'activer, l'avertissement à accepter (règles du site, responsabilité du joueur).
-function riskyToggle(checked, type, label) {
-  const box = h("input", { type: "checkbox", checked: Boolean(checked), on: { change: async (e) => {
-    if (e.target.checked && !await automationWarning()) { box.checked = false; return; }
-    await ask(type, { on: box.checked });
-    draw(false);
-  } } });
-  return h("label", {}, box, ` ${label}`);
-}
-
-function automationWarning() {
-  return dialog({
-    title: "Avant d'activer l'automatisation",
-    lines: [
-      "WikiMastered est une extension non officielle, faite par un joueur. Elle n'est ni développée ni approuvée par Wiki Masters.",
-      "Les règles de Wiki Masters interdisent les bots, scripts et outils qui jouent ou ouvrent des paquets à ta place. Ses conditions " +
-        "d'utilisation prévoient la suspension ou le bannissement d'un compte qui utilise de l'automatisation, jusqu'à la perte définitive " +
-        "du compte et de tout ce qu'il contient.",
-    ],
-    strong: "En l'activant, tu choisis de l'utiliser en connaissance de cause. Tu es seul responsable de son usage et de ses conséquences " +
-      "pour ton compte, y compris une sanction ou un bannissement ; le développeur de l'extension ne peut pas en être tenu responsable.",
-    check: "J'ai lu cet avertissement et j'active l'automatisation sous ma seule responsabilité.",
-    ok: "Activer", cancel: "Laisser désactivé",
-  });
+      "(2 min au plus) puis est gardée. Pour l'arrêter : Réglages, Fonctionnalités expérimentales."));
 }
 
 // Le dernier paquet (#23) : chaque carte, nouvelle ou doublon, son prix, et la valeur du paquet.
@@ -937,7 +906,7 @@ async function auctionsView() {
   refresh();
   const timer = setInterval(() => (live.isConnected ? refresh() : clearInterval(timer)), 5e3);
   return [seg, h("p", { className: "muted" }, "Tes enchères sur le marché du site", stamp, again), live,
-    ...(auctionSide === "buy" ? await buyStatic() : await sellStatic())];
+    ...(auctionSide === "buy" ? await buyStatic() : (await labActive("sell")) ? await sellStatic() : [])];
 }
 
 function buyLive(state, m) {
@@ -1063,7 +1032,15 @@ async function settingsView() {
       "Relire tous les prix"),
     h("h3", {}, "Données gardées par l'extension"),
     await dataSection(),
-    h("h3", {}, "Prix partagés (facultatif)"),
+    ...((await labActive("shared")) ? await sharedSection() : []),
+    h("h3", {}, "Fonctionnalité expérimentale"),
+    await labsSection(),
+  ];
+}
+
+async function sharedSection() {
+  return [
+    h("h3", {}, "Prix partagés"),
     h("p", { className: "muted" }, "Le principe : les participants mettent en commun les prix qu'ils lisent. Quand ton extension lit le prix d'une " +
       "carte sur le site, elle le dépose sur un petit serveur ; quand il lui faut un prix qu'un autre participant (joueur ou bot) a lu depuis " +
       "moins de 6 h, elle le reçoit de ce serveur au lieu de le relire."),
@@ -1077,6 +1054,62 @@ async function settingsView() {
       "développeur de l'extension. Sans eux, tout marche pareil, en lisant chaque prix toi-même."),
     await sharedSettings(),
   ];
+}
+
+// Fonctionnalités expérimentales : un champ sans aide ni suggestion ; un code juste ajoute la fonction à la liste en
+// dessous, décochée. La cocher demande d'accepter l'avertissement. « Retirer » l'efface (code à retaper).
+async function labsSection() {
+  const list = h("div", {});
+  const save = (labs) => chrome.storage.local.set({ [LABS_KEY]: labs });
+  const drawList = async () => {
+    const labs = await readLabs();
+    fill(list, ...WME.LABS.filter((lab) => labs.unlocked.includes(lab.id)).map((lab) => {
+      const box = h("input", { type: "checkbox", checked: labs.on.includes(lab.id), on: { change: async () => {
+        if (box.checked && !await labWarning(lab)) { box.checked = false; return; }
+        const now = await readLabs();
+        await save({ ...now, on: box.checked ? [...new Set([...now.on, lab.id])] : now.on.filter((x) => x !== lab.id) });
+        if (lab.id === "shared") draw(true); // ses réglages apparaissent ou disparaissent plus haut
+      } } });
+      const forget = h("button", { className: "act small", title: "Retirer de la liste (il faudra retaper le code)", on: { click: async () => {
+        const now = await readLabs();
+        await save({ unlocked: now.unlocked.filter((x) => x !== lab.id), on: now.on.filter((x) => x !== lab.id) });
+        drawList();
+      } } }, "Retirer");
+      return h("div", {}, h("label", {}, box, ` ${lab.label} `, forget), h("p", { className: "muted" }, lab.detail));
+    }));
+  };
+  const input = h("input", { type: "text", className: "wide", autocomplete: "off", spellcheck: false, ariaLabel: "Fonctionnalité expérimentale",
+    on: { keydown: async (e) => {
+      if (e.key !== "Enter") return;
+      const code = input.value;
+      input.value = "";
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(WME.labCode(code)));
+      const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const lab = WME.LABS.find((l) => l.hash === hash);
+      if (!lab) return;
+      const now = await readLabs();
+      if (!now.unlocked.includes(lab.id)) await save({ ...now, unlocked: [...now.unlocked, lab.id] });
+      drawList();
+    } } });
+  await drawList();
+  return h("div", {}, input, list);
+}
+
+// Avant d'activer une fonctionnalité expérimentale : extension non officielle, responsabilité du joueur.
+function labWarning(lab) {
+  return dialog({
+    title: lab.label,
+    lines: [
+      "WikiMastered est une extension non officielle, faite par un joueur. Elle n'est ni développée ni approuvée par Wiki Masters.",
+      lab.detail,
+      "Cette fonction agit sur ton compte à ta place. Les règles de Wiki Masters interdisent les bots, scripts et outils qui jouent " +
+        "pour toi ; ses conditions d'utilisation prévoient la suspension ou le bannissement d'un compte, jusqu'à sa perte définitive.",
+    ],
+    strong: "En l'activant, tu l'utilises en connaissance de cause et sous ta seule responsabilité, y compris pour une carte perdue, une " +
+      "sanction ou un bannissement ; le développeur de l'extension ne peut pas en être tenu responsable.",
+    check: "J'ai lu cet avertissement et j'active cette fonction sous ma seule responsabilité.",
+    ok: "Activer", cancel: "Laisser désactivée",
+  });
 }
 
 // ------------------------------------------------------------------ Données (#27) : taille, vider, sauvegarder.
@@ -1093,6 +1126,7 @@ const DATA = [
   { key: "wmLimitLog", label: "Relevé des refus du site", clear: true, backup: true },
   { key: "settings", label: "Réglages", clear: false, backup: true },
   { key: "shared", label: "Prix partagés : adresse et jeton", clear: false, backup: true },
+  { key: "wmLabs", label: "Fonctionnalités expérimentales", clear: false, backup: true },
 ];
 const kb = (bytes) => (bytes < 1024 ? `${bytes} o` : `${(bytes / 1024).toLocaleString("fr-FR", { maximumFractionDigits: bytes < 10240 ? 1 : 0 })} Ko`);
 

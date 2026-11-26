@@ -12,7 +12,7 @@
   window.__wmeClick = true;
 
   // Clés de stockage partagées dans chrome.storage.local.
-  const SETTINGS_KEY = "settings";
+  const LABS_KEY = "wmLabs";                  // fonctionnalités expérimentales débloquées et cochées (src/lib.js)
   const FLAG_NEED_CLICK = "wmNeedClick";
   const FLAG_NEED_VERIFY = "wmNeedVerify";
   const FLAG_RETURN_TO = "wmReturnTo";         // objet { to, startedAt, openedAt } persisté entre rechargements
@@ -94,13 +94,14 @@
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  // Lit les options d'automatisation depuis chrome.storage.local (autoUnblockMarket reste false par défaut).
+  // Les deux automatisations sont des fonctionnalités expérimentales (src/lib.js, LABS) : elles ne tournent que
+  // débloquées par leur code et cochées dans Réglages. Les anciens réglages autoClickPack / autoUnblockMarket ne
+  // comptent plus.
   async function getClickSettings() {
-    const res = await chrome.storage.local.get(SETTINGS_KEY);
-    const s = res[SETTINGS_KEY] || {};
+    const { [LABS_KEY]: labs } = await chrome.storage.local.get(LABS_KEY);
     return {
-      autoClickPack: Boolean(s.autoClickPack),
-      autoUnblockMarket: Boolean(s.autoUnblockMarket),
+      autoClickPack: WME.labOn(labs, "autopack"),
+      autoUnblockMarket: WME.labOn(labs, "unblock"),
     };
   }
 

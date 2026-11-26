@@ -52,6 +52,7 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] Panneau aux couleurs, polices et raretés du site, thème clair ou sombre comme lui. (0.13.0)
 - [x] Onglet Page selon la page du site : paquets restants partout, défausse du dernier paquet, collection, marché, profil d'un ami et offre d'échange, fiche d'une carte (amis qui l'ont, prochaines enchères), succès. (0.14.0)
 - [x] Défausse à l'ouverture des paquets, réglable (raretés, cote maximum, doublons seulement), coupée par défaut. (WikiMasters QoL) (0.14.0)
+- [x] Fonctionnalités expérimentales : tout ce qui agit à la place du joueur (automatisation, défausse, vente, prix partagés) caché par défaut, débloqué par un code dans Réglages, activé après un avertissement. (0.19.0)
 - [ ] Guilde : les enchères des cartes souhaitées par la guilde (route du site à relever).
 - [ ] Confort à trier après essai de Toolbox : pastille du thème, favori et étiquettes pendant la révélation, récap dans la marge, son de notification, raccourcis de la popup. [#53](https://github.com/MaKSiiMe/WikiMastered-extension/issues/53)
 

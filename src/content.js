@@ -13,7 +13,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb, labOn } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -54,6 +54,7 @@
   const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
   const OTHER_PULL_STATS_KEY = "wm_pull_stats_v1"; // compteurs de « WikiMasters - Prix moyen collection » (localStorage)
   const AUTO_PULL_WINDOW_MS = 15e3;     // un paquet ouvert moins de 15 s après un clic de src/click.js est « auto »
+  const LABS_KEY = "wmLabs";            // fonctionnalités expérimentales : { unlocked, on } (src/lib.js, LABS ; panneau)
   const SHARED_KEY = "shared";          // serveur de prix partagés : { on, url, token } (fenêtre, src/background.js)
   const SHARED_RECHECK_MS = 2 * 60e3;   // une carte absente du cache partagé y est redemandée après 2 min
   const SHARED_PUSH_MS = 3e3;           // lectures déposées par lots, au plus toutes les 3 s
@@ -70,10 +71,16 @@
     set: (key, value) => chrome.storage.local.set({ [key]: value }),
   };
 
-  // Réglages persistés : badges actifs par défaut ; automatisations par clic, bonnes affaires du marché et images
-  // Wikipédia désactivées par défaut. minWeekSales : ventes de la semaine à partir desquelles un prix est fiable.
-  let settings = { badges: true, autoClickPack: false, autoUnblockMarket: false, minWeekSales: MIN_SALES, deals: false, images: false,
-    autoDiscard: { on: false, rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true } };
+  // Réglages persistés : badges actifs par défaut ; bonnes affaires du marché et images Wikipédia désactivées par
+  // défaut. minWeekSales : ventes de la semaine à partir desquelles un prix est fiable. autoDiscard : les règles de la
+  // défausse à l'ouverture, qui ne tourne que si la fonctionnalité expérimentale est active (labs).
+  let settings = { badges: true, minWeekSales: MIN_SALES, deals: false, images: false,
+    autoDiscard: { rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true } };
+  // Fonctionnalités expérimentales (src/lib.js, LABS) : tout ce qui agit à la place du joueur ne tourne que débloqué par
+  // son code et coché dans les Réglages du panneau. Une action d'une fonction verrouillée est refusée ici aussi.
+  let labs = { unlocked: [], on: [] };
+  const needLab = (id) => (labOn(labs, id) ? Promise.resolve()
+    : Promise.reject(new Error("Fonctionnalité expérimentale désactivée (Réglages).")));
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
@@ -496,11 +503,13 @@
   }
   window.addEventListener("pagehide", () => { if (sharedOut.length) flushShared(); });
 
+  let sharedCfg = null; // dernière configuration lue, réappliquée quand la fonctionnalité expérimentale change
   function applySharedConfig(cfg) {
+    sharedCfg = cfg;
     // Signature du serveur et du jeton (fin du jeton seulement) : une synchronisation faite avec un autre serveur ou un
     // autre participant ne vaut pas pour celui-ci.
     sharedSig = cfg && cfg.url ? `${cfg.url}|${String(cfg.token || "").slice(-6)}` : "";
-    const on = Boolean(cfg && cfg.on && cfg.url && cfg.token);
+    const on = Boolean(cfg && cfg.on && cfg.url && cfg.token && labOn(labs, "shared"));
     if (on === sharedOn) return;
     sharedOn = on;
     sharedAsked.clear();
@@ -1846,7 +1855,7 @@
   let discardError = "";
   async function autoDiscard(pack) {
     const rules = settings.autoDiscard;
-    if (!rules || !rules.on) return;
+    if (!rules || !labOn(labs, "autodiscard")) return;
     let cards = pack.cards;
     for (let round = 0; round < 13 && cards.length; round++) {
       if (round) await sleep(10e3);
@@ -1929,7 +1938,8 @@
     if (changes[LIMITS_KEY]) limitLog = changes[LIMITS_KEY].newValue || [];
     if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
     if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
-    if (changes[SHARED_KEY]) applySharedConfig(changes[SHARED_KEY].newValue);
+    if (changes[LABS_KEY]) labs = changes[LABS_KEY].newValue || { unlocked: [], on: [] };
+    if (changes[SHARED_KEY] || changes[LABS_KEY]) applySharedConfig(changes[SHARED_KEY] ? changes[SHARED_KEY].newValue : sharedCfg);
   });
 
   // ------------------------------------------------------------------ panneau de l'extension (src/panel.js)
@@ -1946,7 +1956,7 @@
         : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
         : message.action === "friends" ? readFriends().then((names) => ({ ok: true, names }))
         : message.action === "friendStatus" ? Promise.resolve({ ok: true, ...friendStatus() })
-        : message.action === "sell" ? sellCopy(message.copy, message.base, message.minutes).then((r) => ({ ok: true, ...r }))
+        : message.action === "sell" ? needLab("sell").then(() => sellCopy(message.copy, message.base, message.minutes)).then((r) => ({ ok: true, ...r }))
         : message.action === "loadCardPrices" ? Promise.resolve((message.ids || []).slice(0, 5000).forEach((id) => want(String(id), "background")))
           .then(() => ({ ok: true }))
         : message.action === "tags" ? panelTags(message.source).then((t) => ({ ok: true, ...t }))
@@ -1957,10 +1967,10 @@
         : message.action === "market" ? panelMarket(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "page" ? panelPage().then((data) => ({ ok: true, ...data }))
         : message.action === "bulkPreview" ? bulkPreview(message.rules || {}).then((data) => ({ ok: true, ...data }))
-        : message.action === "bulkDiscard" ? bulkDiscard(message.rules || {}).then((job) => ({ ok: true, job }))
+        : message.action === "bulkDiscard" ? needLab("purge").then(() => bulkDiscard(message.rules || {})).then((job) => ({ ok: true, job }))
         : message.action === "bulkStatus" ? Promise.resolve({ ok: true, job: bulkJob })
-        : message.action === "discard" ? (lastPack ? discardCards(lastPack.cards.filter((c) => (message.copies || []).includes(c.copy)), false)
-          : Promise.reject(new Error("Aucun paquet ouvert depuis le chargement de la page."))).then((count) => ({ ok: true, count }))
+        : message.action === "discard" ? needLab("purge").then(() => (lastPack ? discardCards(lastPack.cards.filter((c) => (message.copies || []).includes(c.copy)), false)
+          : Promise.reject(new Error("Aucun paquet ouvert depuis le chargement de la page.")))).then((count) => ({ ok: true, count }))
           : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
       work.catch((error) => ({ ok: false, error: String((error && error.message) || error) })).then(reply);
       return true;
@@ -1969,12 +1979,6 @@
       settings.badges = Boolean(message.on);
       store.set("settings", settings);
       drawBadges();
-    } else if (message.type === "autoClickPack") {
-      settings.autoClickPack = Boolean(message.on);
-      store.set("settings", settings);
-    } else if (message.type === "autoUnblockMarket") {
-      settings.autoUnblockMarket = Boolean(message.on);
-      store.set("settings", settings);
     } else if (message.type === "images") {
       settings.images = Boolean(message.on);
       store.set("settings", settings);
@@ -1984,7 +1988,7 @@
       const r = message.rules || {};
       const max = Number(r.maxPrice);
       settings.autoDiscard = {
-        on: Boolean(r.on), duplicatesOnly: r.duplicatesOnly !== false,
+        duplicatesOnly: r.duplicatesOnly !== false,
         rarities: (Array.isArray(r.rarities) ? r.rarities : []).map((x) => String(x).toUpperCase()).filter((x) => rank(x) >= 0),
         maxPrice: r.maxPrice !== null && r.maxPrice !== "" && Number.isFinite(max) && max >= 0 ? Math.round(max) : null,
       };
@@ -2015,8 +2019,9 @@
     settlePulls();
     reply({
       badges: settings.badges,
-      autoClickPack: settings.autoClickPack,
-      autoUnblockMarket: settings.autoUnblockMarket,
+      autoClickPack: labOn(labs, "autopack"),
+      autoUnblockMarket: labOn(labs, "unblock"),
+      labs,
       minSales: settings.minWeekSales,
       deals: settings.deals,
       images: settings.images,
@@ -2045,7 +2050,9 @@
 
   // ------------------------------------------------------------------ démarrage
   const ready = (async () => {
-    settings = { ...settings, ...(await store.get("settings", {})) };
+    const { autoClickPack: _pack, autoUnblockMarket: _unblock, ...saved } = await store.get("settings", {}); // avant 0.19 : remplacés par labs
+    settings = { ...settings, ...saved };
+    labs = await store.get(LABS_KEY, labs);
     prices = await store.get(PRICES_KEY, {});
     applySharedConfig(await store.get(SHARED_KEY, null));
     const pause = await store.get(PAUSE_KEY, null);
