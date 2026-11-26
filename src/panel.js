@@ -429,8 +429,88 @@ async function collectionView(first) {
     h("h3", {}, "Mes cartes les plus chères"),
     h("table", {}, ...sum.top.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
       h("td", { className: "num" }, `${c.sure ? "" : "≈ "}${wb(c.price)}`)))),
+    await autoTagBox(),
     (await labActive("discardPanel")) ? await bulkDiscardBox() : null,
   ];
+}
+
+// Étiquettes automatiques, comme le bot : thèmes lus sur Wikidata, « Doublon », « GIF » (src/content.js, autoTag).
+// Construit une fois : l'onglet se redessine toutes les 10 s sans effacer l'état du passage en cours.
+let tagsBox = null;
+async function autoTagBox() {
+  if (tagsBox) {
+    tagsBox.follow();
+    return tagsBox;
+  }
+  const first = await ask("panel", { action: "tagStatus" });
+  const o = { themes: false, duplicate: false, gif: false, auto: false, ...((first.ok && first.options) || {}) };
+  const status = h("p", { className: "muted" });
+  const missingBox = h("div", {});
+  const any = () => o.themes || o.duplicate || o.gif;
+  const run = h("button", { className: "act", disabled: !any(), on: { click: async () => {
+    run.disabled = true;
+    const reply = await ask("panel", { action: "tagRun" });
+    if (!reply.ok) status.textContent = reply.error;
+    follow();
+  } } }, "Étiqueter maintenant");
+  const check = (key, label) => h("label", {}, h("input", { type: "checkbox", checked: Boolean(o[key]), on: { change: async (e) => {
+    // Thèmes et GIF envoient des titres de cartes à Wikipédia et Wikidata : consentement Firefox demandé pendant le clic.
+    if (e.target.checked && (key === "themes" || key === "gif") && !(await requestAccess([]).catch(() => false))) {
+      e.target.checked = false;
+      return;
+    }
+    o[key] = e.target.checked;
+    await ask("autoTags", { options: o });
+    follow();
+  } } }), label);
+  const show = (r) => {
+    const j = r.job;
+    const last = r.last;
+    run.disabled = !any() || Boolean(j && j.running);
+    status.textContent = j && j.running ? `${j.phase}${j.total ? ` : ${fr(j.done)} / ${fr(j.total)}` : ""}…`
+      : j ? (j.error ? `Arrêté : ${j.error}` : `Terminé : ${fr(j.added)} étiquette(s) posée(s), ${fr(j.removed)} retirée(s).`)
+      : last && last.at ? `Dernier passage le ${new Date(last.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} : ` +
+        (last.error ? `arrêté (${last.error}).` : `${fr(last.added || 0)} posée(s), ${fr(last.removed || 0)} retirée(s).`) : "";
+    const missing = any() && Array.isArray(r.missing) ? r.missing : [];
+    const create = h("button", { className: "act small", on: { click: async () => {
+      create.disabled = true;
+      const reply = await ask("panel", { action: "tagCreate" });
+      create.replaceWith(reply.ok ? ` ${fr(reply.count)} étiquette(s) créée(s).` : ` ${reply.error}`);
+    } } }, `Créer ces ${missing.length} étiquette(s) sur le site`);
+    missingBox.replaceChildren(...(missing.length ? [h("p", { className: "warn" }, `Pas encore sur le site (ignorées) : ${missing.join(", ")}. `, create)] : []));
+  };
+  let following = false;
+  const follow = async () => {
+    if (following) return;
+    following = true;
+    try {
+      for (;;) {
+        const r = await ask("panel", { action: "tagStatus" });
+        if (!r.ok || !document.body.contains(status)) return;
+        show(r);
+        if (!(r.job && r.job.running)) return;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    } finally {
+      following = false;
+    }
+  };
+  tagsBox = h("div", { className: "box" },
+    h("h3", {}, "Étiquettes automatiques"),
+    check("themes", " Thèmes (Personne, Pays, Musique, Sport…), d'après Wikidata, sur un exemplaire de chaque carte"),
+    check("duplicate", " « Doublon » sur les exemplaires en trop"),
+    check("gif", " « GIF » sur un exemplaire de chaque carte animée"),
+    check("auto", " Refaire toutes les 6 h (une page du site ouverte)"),
+    missingBox,
+    run, status,
+    h("p", { className: "muted" }, "Comme le bot WikiMastered : l'exemplaire gardé est le favori, sinon la shiny, sinon la plus haute rareté, " +
+      "puis le plus ancien. Seules tes étiquettes du même nom sont utilisées (émojis et majuscules ignorés). L'extension ne retire que « Doublon » " +
+      "et « GIF » quand elles ne vont plus, et « Objet » d'une carte qui a reçu un autre thème. Le premier classement lit Wikipédia et Wikidata " +
+      "(les titres de tes cartes, rien d'autre), page du site ouverte : quelques minutes, jusqu'à une demi-heure pour une très grande collection. " +
+      "Interrompu, il reprend où il s'était arrêté ; ensuite, seules les nouvelles cartes sont lues."));
+  tagsBox.follow = follow;
+  follow();
+  return tagsBox;
 }
 
 // Défausse en masse (comme DISCARD_MAX_VALUE du bot) : raretés, cote au plus N WB, puis « Voir les cartes » et
@@ -549,7 +629,7 @@ async function bulkDiscardBox() {
 // relance la recherche.
 const RARITY_CODES = ["L", "UR", "SR", "R", "PC", "C"];
 const DURATIONS = [[10, "10 min"], [30, "30 min"], [60, "1 h"], [180, "3 h"], [360, "6 h"], [720, "12 h"]];
-let lastCriteria = { sort: "value-desc", price: "all", rarities: [], source: "me", tags: [], friendRarities: ["L"] };
+let lastCriteria = { sort: "value-desc", price: "all", rarities: [], source: "me", tags: [], friendRarities: ["L"], limit: 300 };
 
 // Mise en vente d'un exemplaire en trop (ma collection) : prix de départ (la cote par défaut) et durée, puis confirmation.
 // Le formulaire s'ouvre sous la ligne de la carte ; un second clic le referme.
@@ -698,7 +778,7 @@ async function filtersView() {
     const canSell = mine && await labActive("sellPanel");
     fill(results, 
       reply.source && h("p", { className: "muted" }, `Collection de ${reply.source}`),
-      h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${reply.items.length} premières)` : ""}`),
+      h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${fr(reply.items.length)} premières : menu « Afficher » pour plus)` : ""}`),
       h("table", {}, h("tr", {}, h("th", {}, "Carte"), h("th", {}, "Rareté"), h("th", { className: "num" }, "Ex."), h("th", { className: "num" }, "Prix"), mine ? h("th", {}) : null),
         ...reply.items.map((i) => {
           const cell = h("td", {});
@@ -722,6 +802,9 @@ async function filtersView() {
     h("div", {}, price, range),
     tagBox,
     h("label", {}, "Trier par ", sort),
+    h("label", {}, "Afficher ", h("select", { on: { change: (e) => { c.limit = Number(e.target.value); } } },
+      ...[[50, "50 cartes"], [100, "100 cartes"], [300, "300 cartes"], [1000, "1 000 cartes"], [0, "toutes les cartes"]]
+        .map(([v, l]) => h("option", { value: v, selected: c.limit === v }, l)))),
     h("button", { className: "act primary", on: { click: run } }, "Filtrer"),
     results,
   ];
@@ -734,7 +817,13 @@ async function wishesView() {
   const s = await ask("panel", { action: "wishlist", refresh: wishRefresh });
   wishRefresh = false;
   if (!s.ok) return error(s);
-  if (!s.items.length) return [h("p", {}, "Ta liste de souhaits est vide.")];
+  const pruned = s.pruned || {};
+  const pruneBox = h("div", {},
+    h("label", {}, h("input", { type: "checkbox", checked: Boolean(s.prune), on: { change: async (e) => { await ask("wishPrune", { on: e.target.checked }); draw(true); } } }),
+      " Retirer de ma liste les cartes que je possède (dans n'importe quelle rareté)"),
+    pruned.error ? h("p", { className: "warn" }, pruned.error)
+      : pruned.titles && pruned.titles.length ? h("p", { className: "muted" }, `Retirées : ${pruned.titles.join(", ")}.`) : null);
+  if (!s.items.length) return [pruneBox, h("p", {}, "Ta liste de souhaits est vide.")];
   const f = s.friends || {};
   const friendsLine = f.reading ? h("p", { className: "muted" }, "Recherche de tes souhaits chez tes amis…")
     : f.error ? h("p", { className: "warn" }, `Chez mes amis : ${f.error}`)
@@ -750,6 +839,7 @@ async function wishesView() {
   };
   const free = s.items.filter((i) => i.friends && i.friends.some((o) => o.status !== "locked")).length;
   return [
+    pruneBox,
     h("p", { className: "big" }, `≈ ${fr(s.total)} WB`),
     h("p", { className: "muted" }, `${s.items.length} carte(s) souhaitée(s) · ${s.priced} avec un prix (le plus bas connu, toutes raretés) · ` +
       `${s.never} jamais vendue(s) · ${s.unknown} prix pas encore lu(s)` + (f.given ? ` · ${free} chez un ami` : "")),

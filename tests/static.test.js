@@ -42,7 +42,7 @@ function called(source) {
 }
 
 const lib = fs.readFileSync(path.join(__dirname, "..", "src", "lib.js"), "utf8");
-for (const file of ["lib.js", "content.js", "panel.js", "background.js", "inject.js", "click.js"]) {
+for (const file of ["lib.js", "content.js", "panel.js", "background.js", "inject.js", "click.js", "wikidata.js"]) {
   test(`${file} : toute fonction appelée est déclarée`, () => {
     const source = fs.readFileSync(path.join(__dirname, "..", "src", file), "utf8");
     const known = declared(source);

@@ -58,6 +58,12 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 
 Ce que les premiers joueurs demanderont, puis :
 
+- [x] Plus de rechargement de la page pendant que le joueur ouvre ses paquets (le relais de l'ouverture auto tournait même coupé). (1.0.1)
+- [x] Souhaits : retirer de la liste les cartes possédées, case à cocher. (1.1.0)
+- [x] Étiquettes automatiques : thèmes d'après Wikidata (règles du bot), « Doublon », « GIF ». (1.1.0)
+- [x] Filtres : nombre de cartes affichées (50 à toutes). (1.1.0)
+- [x] ~~Plus de 50 cartes par page du site, plus de 100 cartes par échange.~~ Pas faisable : le site sert 50 cartes par page et refuse toute autre valeur comme automatisation ; la limite de 100 cartes est vérifiée par le site à l'envoi de l'offre. Pour voir plus de cartes : l'onglet Filtres.
+
 - [ ] Confort à trier après essai de Toolbox : pastille du thème, favori et étiquettes pendant la révélation, récap dans la marge, son de notification, raccourcis de la popup. [#53](https://github.com/MaKSiiMe/WikiMastered-extension/issues/53)
 - [ ] Prix partagés pour tous : chacun reçoit les prix du serveur sans jeton, adresse préremplie et activation en un clic ; le dépôt reste réservé aux jetons, ajoutés à la main. [#85](https://github.com/MaKSiiMe/WikiMastered-extension/issues/85)
 - [ ] Guilde : les enchères des cartes souhaitées par la guilde (route du site à relever).
