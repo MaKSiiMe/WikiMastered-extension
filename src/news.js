@@ -1,6 +1,9 @@
 // Nouveautés de chaque version, pour l'onglet « Nouveautés » du panneau (#28). option : réglage qu'un bouton
 // « Activer » allume (message au content script). La plus récente d'abord ; garder les 10 dernières versions.
 const WME_NEWS = [
+  { version: "0.19.0", items: [
+    { text: "Fonctionnalités expérimentales : tout ce qui agit sur ton compte à ta place (ouverture auto des paquets, déblocage du marché, défausse, mise en vente, prix partagés) est maintenant caché. Chaque fonction se débloque par un code, en bas de l'onglet Réglages, puis se coche, avec un avertissement à accepter. Les automatisations déjà actives sont coupées : il faut leur code pour les retrouver." },
+  ] },
   { version: "0.18.0", items: [
     { text: "Défausse en masse : les cartes étiquetées peuvent partir, étiquette par étiquette ou toutes (« Tout sélectionner ») ; une shiny compte comme une L, au prix de la carte ordinaire, marquée ✦ dans l'aperçu." },
   ] },
@@ -37,9 +40,4 @@ const WME_NEWS = [
   ] },
   { version: "0.11.1", items: [{ text: "Prête pour les boutiques : une archive par navigateur, politique de confidentialité, accord demandé sur Firefox avant tout envoi de données." }] },
   { version: "0.11.0", items: [{ text: "Onglet Familles : groupes de cartes à compléter, avec leur progression, ce qu'il manque et le coût, et un code de partage." }] },
-  { version: "0.10.1", items: [
-    { text: "Correctif : les onglets Filtres et Souhaits, et la synchronisation des prix partagés, marchent de nouveau (cassés depuis la 0.9.2)." },
-    { text: "Filtres : la collection d'un autre joueur (avec « seulement celles que je n'ai pas ») et tes étiquettes." },
-    { text: "Échanges : bilan pendant que tu composes une offre, et détail des cartes d'un échange." },
-  ] },
 ];

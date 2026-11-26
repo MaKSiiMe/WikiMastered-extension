@@ -470,3 +470,16 @@ test("défausse en masse : cote au plus N, jamais un favori ; étiquetées seule
   assert.deepEqual(WME.bulkDiscardPicks(shiny, {}, { rarities: ["C"], maxPrice: 5 }, low).picks, []);
   assert.deepEqual(WME.bulkDiscardPicks(rows, {}, { ...rules, maxPrice: "" }, info).picks, []); // sans cote : rien
 });
+
+test("fonctionnalités expérimentales : actives seulement débloquées et cochées", () => {
+  assert.equal(WME.labOn(null, "openPacks"), false);
+  assert.equal(WME.labOn({ unlocked: ["openPacks"], on: [] }, "openPacks"), false); // débloquée, pas cochée
+  assert.equal(WME.labOn({ unlocked: [], on: ["openPacks"] }, "openPacks"), false); // cochée puis code retiré
+  assert.equal(WME.labOn({ unlocked: ["openPacks"], on: ["openPacks"] }, "openPacks"), true);
+  assert.equal(WME.labOn({ unlocked: "openPacks", on: "openPacks" }, "openPacks"), false); // stockage abîmé
+  assert.equal(WME.labCode("  Mot De Passe "), "wikimastered:motdepasse");
+  const ids = WME.LABS.map((l) => l.id);
+  assert.deepEqual(ids, ["openPacks", "unblockMarket", "discardOnOpen", "discardPanel", "sellPanel", "sharedPrices"]);
+  for (const lab of WME.LABS) assert.match(lab.hash, /^[0-9a-f]{64}$/, lab.id);
+  assert.equal(new Set(WME.LABS.map((l) => l.hash)).size, WME.LABS.length);
+});
