@@ -7,7 +7,8 @@
 //    (server/, via src/background.js) les lectures des autres participants, et y dépose les siennes.
 // 3. Il pose un badge « ≈ 1 250 » sur chaque carte de la page, retrouvée par son titre, et le bilan d'un échange
 //    affiché (ce que chaque côté donne).
-// 4. Il coordonne les réglages d'automatisation par clic (src/click.js, dans le même monde isolé) et répond au
+// 4. Il garde les réglages et les fonctionnalités expérimentales (src/lib.js, LABS ; src/click.js pour l'ouverture auto
+//    des paquets, dans le même monde isolé) et répond au
 //    panneau de l'extension (src/panel.js, clic sur l'icône ou Alt+Maj+W) : compteurs, collection, réglages.
 (() => {
   if (window.__wmeContent) return;
@@ -998,10 +999,7 @@
   let collectionReading = null;
   async function readCollection(force) {
     const cached = await store.get(COLLECTION_KEY, null);
-    // La 0.7 ne gardait pas l'image, et les étiquettes ne sont lues que depuis la 0.10.1 : une collection lue avant est
-    // relue, sinon ses étiquettes manqueraient (filtre vide, « sans étiquette » = toute la collection).
-    const complete = cached && (!cached.rows.length || cached.rows[0].length >= 7) && "tags" in cached;
-    if (!force && complete && Date.now() - cached.at < COLLECTION_TTL_MS) return cached;
+    if (!force && cached && Date.now() - cached.at < COLLECTION_TTL_MS) return cached;
     collectionReading ||= (async () => {
       const access = await store.get(SUPABASE_KEY, null);
       if (!access) throw new Error("Accès à la collection pas encore repéré : recharge une page du site, puis réessaie.");
@@ -2020,7 +2018,6 @@
     reply({
       badges: settings.badges,
       autoClickPack: labOn(labs, "openPacks"),
-      autoUnblockMarket: labOn(labs, "unblockMarket"),
       labs,
       minSales: settings.minWeekSales,
       deals: settings.deals,
@@ -2050,8 +2047,7 @@
 
   // ------------------------------------------------------------------ démarrage
   const ready = (async () => {
-    const { autoClickPack: _pack, autoUnblockMarket: _unblock, ...saved } = await store.get("settings", {}); // avant 0.19 : remplacés par labs
-    settings = { ...settings, ...saved };
+    settings = { ...settings, ...(await store.get("settings", {})) };
     labs = await store.get(LABS_KEY, labs);
     prices = await store.get(PRICES_KEY, {});
     applySharedConfig(await store.get(SHARED_KEY, null));
@@ -2062,21 +2058,12 @@
     slowUntil = Number(await store.get(SLOW_KEY, 0)) || 0;
     for (const [id, flag] of Object.entries(await store.get(OWNED_KEY, {}))) if (!owned.has(id)) owned.set(id, Boolean(flag));
     const storedPulls = await store.get(PULLS_KEY, null);
-    if (Array.isArray(storedPulls)) {
-      // Premier format (essais de la 0.4, packs auto seulement) : converti une fois au format compact.
-      for (const pull of storedPulls) pullLog = addPull(pullLog, { ...pull, auto: true }, PULLS_MAX);
-      settlePullPrices(pullLog, (c) => {
-        const old = storedPulls.flatMap((p) => p.cards).find((o) => o.id === c.id && o.rarity === c.rarity && !o.shiny);
-        return old && Number.isFinite(old.price) ? old.price : null;
-      });
-      store.set(PULLS_KEY, pullLog);
-    } else if (storedPulls && Array.isArray(storedPulls.packs)) {
-      pullLog = storedPulls;
-    }
+    if (storedPulls && Array.isArray(storedPulls.packs)) pullLog = storedPulls;
     for (const [id, entry] of Object.entries(prices)) {
       if (!entry || Date.now() - entry.at > PRICE_KEEP_MS) delete prices[id];
     }
-    chrome.storage.local.remove(["friends", "prices"]); // 0.1 : liste des amis, et cotes calculées autrement
+    // Restes des versions 0.x : liste des amis et cotes de la 0.1, onglet Familles, déblocage du marché.
+    chrome.storage.local.remove(["friends", "prices", "wmFamilies", "wmNeedVerify", "wmMarketTry", "wmMarketUnblock"]);
     scheduleBadges();
     pullBaselineEntry = await store.get(PULL_BASELINE_KEY, null);
     importPullBaseline();

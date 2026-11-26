@@ -20,7 +20,7 @@ Validé par `web-ext lint` (outil officiel de Mozilla) : 0 erreur. Il reste 2 av
    - badges sur la page Marché ;
    - panneau, onglet Collection ;
    - offre d'échange en cours ;
-   - panneau, onglets Filtres et Familles.
+   - panneau, onglet Filtres.
 5. Onglet **Confidentialité** :
    - objectif unique : « Afficher le prix moyen des cartes Wiki Masters et des outils de collection » ;
    - justification de chaque droit : ci-dessous ;
@@ -40,11 +40,13 @@ Validé par `web-ext lint` (outil officiel de Mozilla) : 0 erreur. Il reste 2 av
 
 | Droit | Pourquoi |
 |---|---|
-| `storage` | Garder les prix lus, la collection, les réglages, le récap des paquets et les familles sur l'ordinateur. |
-| `sidePanel` (Chrome) / `sidebar_action` (Firefox) | Le panneau latéral : collection, filtres, souhaits, familles, paquets, réglages. |
+| `storage` | Garder les prix lus, la collection, les réglages et le récap des paquets sur l'ordinateur. |
+| `sidePanel` (Chrome) / `sidebar_action` (Firefox) | Le panneau latéral : page ouverte, collection, filtres, souhaits, enchères, paquets, réglages. |
 | `https://www.wiki-masters.com/*` | Lire les cartes affichées et leurs prix sur le site, et y poser les badges. |
-| `https://*.workers.dev/*` (facultatif, demandé à l'activation) | Joindre le serveur de prix partagés, seulement si l'utilisateur l'active et donne son adresse. |
+| `https://*.workers.dev/*` (facultatif, demandé à l'activation) | Joindre le serveur de prix partagés (fonctionnalité expérimentale), seulement si l'utilisateur l'active et donne son adresse. |
 
-## Automatisation par clic
+## Fonctionnalités expérimentales
 
-Les règles de la communauté Wiki Masters interdisent les scripts qui jouent à la place du joueur. L'**automatisation par clic** (ouverture auto des paquets, déblocage du marché) en fait partie. Elle reste dans l'archive des boutiques (choix du 24/11/2026), coupée par défaut : l'activer demande d'accepter un avertissement (règles du site, risque de bannissement, responsabilité du joueur). La fiche le dit aussi, pour l'examen des boutiques.
+Les règles de la communauté Wiki Masters interdisent les scripts qui jouent à la place du joueur. Depuis la 1.0, tout ce qui agit sur le compte (ouverture auto des paquets, défausse, mise en vente, prix partagés) est caché : chaque fonction se débloque par un code, puis s'active après un avertissement (extension non officielle, règles du site, responsabilité du joueur).
+
+À décider avant l'envoi : les boutiques demandent que la fiche décrive tout ce que fait l'extension, et des fonctions cachées d'automatisation risquent un refus. Deux possibilités : les décrire dans la fiche (« fonctions avancées, désactivées par défaut »), ou envoyer aux boutiques une archive sans elles et garder la version complète pour les Releases.

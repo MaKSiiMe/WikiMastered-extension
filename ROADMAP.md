@@ -2,7 +2,7 @@
 
 Ce qu'on prévoit, version par version. On pioche au fur et à mesure : une case cochée = livré (avec sa version).
 Tableau de suivi commun avec le bot : [projet WikiMastered](https://github.com/users/MaKSiiMe/projects/1).
-Chaque ligne a son issue (jalons [v1](https://github.com/MaKSiiMe/WikiMastered-extension/milestone/1) et [v2](https://github.com/MaKSiiMe/WikiMastered-extension/milestone/2)) : c'est là que se suit le détail ; une PR qui dit « Closes #n » la ferme.
+Chaque ligne a son issue (jalons [v1](https://github.com/MaKSiiMe/WikiMastered-extension/milestone/1), v1.x et [v2](https://github.com/MaKSiiMe/WikiMastered-extension/milestone/2)) : c'est là que se suit le détail ; une PR qui dit « Closes #n » la ferme.
 Les idées reprises d'autres outils citent leur source (voir [Outils existants](#outils-existants) en bas).
 
 ## 0.4.x : corrections urgentes
@@ -12,12 +12,12 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] **Quota des prix.** (0.4.1) `/api/marketplace/cards/{id}/price-history` est limité à ~90-100 lectures par 10 min ; au-delà, 403 `automation_limit` pendant ~10 min. Aujourd'hui l'extension lit un prix toutes les 0,5-0,8 s et prend ce 403 pour une erreur passagère (3 essais puis « ? »). À faire : budget d'environ 80 lectures par 10 min (partagé entre onglets), vraie pause sur `automation_limit`, et le dire dans la fenêtre. Le quota est sans doute par compte : il est partagé avec le bot.
 - [x] **Vérification humaine.** (0.4.1) Le vrai signal est `human_verification_required` : le mettre dans `looksLikeChallenge` (src/inject.js) à la place des champs devinés.
 - [x] **Limites de l'ouverture de paquets.** (0.4.1) `POST /api/packs/open` : 429 + `Retry-After` si deux ouvertures à moins de 2 s ; corps `rate_limited` / `retry_after` / `rate_limit_daily` ; 400 avec `packs_remaining: 0` quand il n'y a plus rien. `click.js` doit respecter `retry_after` et s'arrêter sur la limite quotidienne.
-- [ ] **Déblocage marché.** Rien n'écrit encore `wmNeedVerify` : décider d'où vient le signal (réponse `human_verification_required` d'une mise, ou le bot), ou retirer la fonction.
+- [x] ~~**Déblocage marché.**~~ Retiré en 1.0 : rien ne déclenchait le signal qu'il attendait (`wmNeedVerify`), il ne se lançait jamais.
 
 ## v1 : le collectionneur
 
 ### Prix
-- [ ] Prix partagés entre joueurs et bots (serveur commun, `server/`) : essai à quatre en 0.5, puis ouverture plus large avec contrôle des cotes déposées (concordance, vérification par le bot).
+- [x] Prix partagés entre joueurs et bots (serveur commun, `server/`), en essai depuis la 0.5 : fonctionnalité expérimentale en 1.0, réservée aux participants qui ont un jeton. Ouverture plus large (contrôle des cotes déposées) : en v1.x ou plus tard.
 - [x] Nombre de ventes derrière chaque prix ; « ≈ » quand il y en a peu, seuil réglable. (Toolbox, henchoznoe) [#13](https://github.com/MaKSiiMe/WikiMastered-extension/issues/13) (0.6.2)
 - [x] Courbe de prix au survol d'un badge : un relevé local par rareté et par jour, gardé 90 jours, trous affichés. (henchoznoe) [#14](https://github.com/MaKSiiMe/WikiMastered-extension/issues/14) (0.10.0)
 - [x] Médiane et fourchette (Q1-Q3) quand assez de ventes, en plus du prix moyen du site. (henchoznoe) [#15](https://github.com/MaKSiiMe/WikiMastered-extension/issues/15) (0.10.0)
@@ -53,12 +53,15 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] Onglet Page selon la page du site : paquets restants partout, défausse du dernier paquet, collection, marché, profil d'un ami et offre d'échange, fiche d'une carte (amis qui l'ont, prochaines enchères), succès. (0.14.0)
 - [x] Défausse à l'ouverture des paquets, réglable (raretés, cote maximum, doublons seulement), coupée par défaut. (WikiMasters QoL) (0.14.0)
 - [x] Fonctionnalités expérimentales : tout ce qui agit à la place du joueur (automatisation, défausse, vente, prix partagés) caché par défaut, débloqué par un code dans Réglages, activé après un avertissement. (0.19.0)
-- [ ] Guilde : les enchères des cartes souhaitées par la guilde (route du site à relever).
-- [ ] Confort à trier après essai de Toolbox : pastille du thème, favori et étiquettes pendant la révélation, récap dans la marge, son de notification, raccourcis de la popup. [#53](https://github.com/MaKSiiMe/WikiMastered-extension/issues/53)
 
-### Publication
-- [ ] Chrome Web Store. [#29](https://github.com/MaKSiiMe/WikiMastered-extension/issues/29)
-- [ ] Version signée pour Firefox (AMO). [#30](https://github.com/MaKSiiMe/WikiMastered-extension/issues/30)
+## v1.x : retours des premiers joueurs
+
+Ce que les premiers joueurs demanderont, puis :
+
+- [ ] Confort à trier après essai de Toolbox : pastille du thème, favori et étiquettes pendant la révélation, récap dans la marge, son de notification, raccourcis de la popup. [#53](https://github.com/MaKSiiMe/WikiMastered-extension/issues/53)
+- [ ] Guilde : les enchères des cartes souhaitées par la guilde (route du site à relever).
+- [ ] Chrome Web Store (compte développeur payant, 5 $). [#29](https://github.com/MaKSiiMe/WikiMastered-extension/issues/29)
+- [ ] Version signée pour Firefox (AMO, gratuit). [#30](https://github.com/MaKSiiMe/WikiMastered-extension/issues/30)
 
 ## v2 : l'investisseur (synchronisée avec le bot)
 
@@ -83,7 +86,7 @@ Avec [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : l'extension affi
 - **Passer la vérification anti-bot** : l'extension s'arrête dessus, comme tous les outils sérieux (LeKenT1 raconte 1 905 tentatives en 77 min avant d'ajouter cet arrêt).
 - **Remplacer toute l'interface du site** (Nogze/wikimasters-enhanced), gadgets (Pong).
 
-Rappel : les règles de la communauté WikiMasters interdisent les bots et les scripts qui ouvrent des paquets, misent ou échangent à la place du joueur. L'ouverture auto des paquets (0.4) est concernée.
+Rappel : les règles de la communauté WikiMasters interdisent les bots et les scripts qui ouvrent des paquets, misent ou échangent à la place du joueur. L'ouverture auto des paquets, la défausse automatique et les autres actions faites à la place du joueur sont donc des fonctionnalités expérimentales, cachées par défaut (1.0).
 
 ## Outils existants
 

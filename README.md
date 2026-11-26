@@ -4,14 +4,14 @@ Extension de navigateur pour [Wiki Masters](https://www.wiki-masters.com/) : un 
 
 Pour les prix, elle fait seulement des lectures, comme le site quand tu ouvres la fiche d'une carte : au moins une demi-seconde d'écart, et au plus 80 lectures par 10 minutes sur chacune des deux routes de prix, tous onglets confondus (le site bloque vers 90-100). Si le site demande d'arrêter (trop de requêtes, quota atteint, vérification humaine), tous les onglets font la pause qu'il indique, affichée dans le panneau de l'extension. Un prix est relu au bout de 6 h et reste affiché pendant sa relecture : normalement jusqu'à 24 h, grisé au-delà (7 jours au plus).
 
-Par défaut, elle ne fait que lire. Ce qui agit sur ton compte à ta place (ouvrir les paquets, défausser, vendre, déblocage du marché, prix partagés) est caché : ce sont des [fonctionnalités expérimentales](#fonctionnalités-expérimentales), chacune débloquée par un code à demander au développeur.
+Par défaut, elle ne fait que lire. Ce qui agit sur ton compte à ta place (ouvrir les paquets, défausser, vendre, prix partagés) est caché : ce sont des [fonctionnalités expérimentales](#fonctionnalités-expérimentales), chacune débloquée par un code à demander au développeur.
 
 ## Feuille de route
 
 | Version | Pour qui | Contenu |
 |---|---|---|
-| **v0** (en cours) | tout le monde | Le prix moyen sur chaque carte, le bilan d'un échange, le panneau de l'extension ; en 0.4, l'automatisation par clic optionnelle et le récap des paquets. |
-| v1 | le collectionneur | Courbe de prix, tableau de bord de la collection, filtres, liste de souhaits chiffrée, échanges chiffrés ; Chrome Web Store et Firefox signé. |
+| v0 (0.1 à 0.19) | tout le monde | Le prix moyen sur chaque carte, le bilan d'un échange, le panneau de l'extension, le récap des paquets. |
+| **v1** | le collectionneur | Courbe de prix, tableau de bord de la collection, filtres, liste de souhaits chiffrée, échanges chiffrés ; ce qui agit à ta place en fonctionnalités expérimentales. Puis, en v1.x : les retours des premiers joueurs, Chrome Web Store et Firefox signé. |
 | v2 | l'investisseur | Synchronisée avec le bot [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : onglet « Bot », Stonks (profit réalisé et latent), trafic Wikipédia, alertes. |
 
 Le détail, case par case, avec les idées reprises des autres outils : [ROADMAP.md](ROADMAP.md).
@@ -27,7 +27,7 @@ Les cartes à l'écran sont lues d'abord, puis celles juste en dessous ; une car
 
 Le quota exact de `/sales` n'est pas connu. Chaque refus du site est noté dans le panneau de l'extension, avec le nombre de lectures de la route juste avant (10 dernières minutes, dernière minute) : de quoi caler les budgets sur ce que le site tolère vraiment, sans le chercher. Les lectures d'une autre extension de prix sur le même compte n'y sont pas comptées, mais le site les compte : mieux vaut n'en garder qu'une active.
 
-### Prix partagés (essai, désactivé par défaut)
+### Prix partagés (fonctionnalité expérimentale)
 
 Le quota du site est par compte : seul, on ne lit pas plus de 80 cartes par route et par 10 minutes. Avec **Prix partagés** (panneau de l'extension, onglet Réglages), plusieurs joueurs et leurs bots mettent leurs lectures en commun sur un petit serveur ([`server/`](server/), un Cloudflare Worker) : avant de lire une carte sur le site, l'extension demande au serveur si quelqu'un l'a lue dans la semaine, en une requête pour toute la page (plus de 6 h : affichée grisée, puis relue) ; chaque lecture faite sur le site y est déposée. Chacun continue de lire seulement ce qu'il regarde, dans son propre quota. L'infobulle d'un badge dit qui a relevé le prix (« par jarry (bot) »). Seuls l'identifiant de la carte et l'historique des prix partent vers le serveur : ni pseudo, ni cookie, ni collection.
 
@@ -82,12 +82,13 @@ Firefox oublie une extension temporaire à sa fermeture : il faut la recharger �
     Tri par valeur ou par rareté. Sur ta collection, *(fonctionnalité expérimentale)* **Vendre** met un exemplaire en trop aux enchères (ni favori ni shiny) : mise de départ (le prix moyen proposé) et durée, puis confirmation. C'est la requête du bouton « Mettre aux enchères » du site.
   - **Souhaits** : ta liste de souhaits du site, chaque carte au prix le plus bas connu (toutes raretés) et les autres raretés, le coût total, et ceux de tes amis qui l'ont, avec les raretés qu'ils peuvent t'échanger (pas en favori ; 🔒 quand ils ne l'ont qu'en favori). Lu dans le catalogue du site (filtre « Ma liste de souhaits »), une page de 50 cartes par seconde, gardé 30 min.
   - **Enchères**, en deux : **Achat** (mes mises en cours, en tête ou dépassées, avec la cote et la mise pour relancer ; ce que j'ai gagné et l'écart à la cote ; les bonnes affaires et enchères surcotées vues sur les pages du marché ouvertes, et la case pour les marquer sur le marché) et **Vente** (mes ventes en cours, l'enchérisseur, les créneaux libres ; les ventes terminées ; *(fonctionnalité expérimentale)* mes doublons à mettre en vente). Lu par la route de l'onglet « Mes enchères » du marché, avec ses paramètres, au plus toutes les 20 s. L'extension ne mise jamais.
-  - **Paquets** : le dernier paquet (nouvelles et doublons), les taux du jour et le récap, avec une barre par rareté ; *(fonctionnalité expérimentale)* les règles de la **défausse à l'ouverture** : raretés choisies, cote maximum, doublons seulement, jamais une shiny ; l'état de l'automatisation par clic.
+  - **Paquets** : le dernier paquet (nouvelles et doublons), les taux du jour et le récap, avec une barre par rareté ; *(fonctionnalité expérimentale)* les règles de la **défausse à l'ouverture** : raretés choisies, cote maximum, doublons seulement, jamais une shiny ; l'état de l'ouverture auto des paquets.
   - **Réglages** : badges, images Wikipédia, seuil de fiabilité ; taille des données gardées, boutons pour vider les caches, sauvegarde et restauration en JSON (pour changer de navigateur ou d'ordinateur sans perdre récap des paquets, courbe de valeur et réglages) ; les prix partagés quand ils sont débloqués ; tout en bas, le champ **Fonctionnalité expérimentale**.
   - Le panneau reprend la charte du site : ses couleurs, ses polices (Inter et Outfit, embarquées, licence OFL), les couleurs de ses raretés, et son thème clair ou sombre.
   - Avec les prix partagés, le panneau se synchronise avec le serveur par différence (au plus toutes les 5 min) : il demande ce qui a été lu depuis la dernière fois, puis seulement les prix des cartes de ta collection et de tes souhaits qu'il n'a pas. C'est par là qu'arrivent les lectures de ton bot.
   - La collection est lue dans la base du site, comme le site lui-même (une quinzaine de requêtes pour 15 000 cartes, avec ta session ; aucune route de prix), puis gardée 12 h. Le panneau ne lit rien lui-même : il passe par l'onglet du site ouvert.
 - **Images Wikipédia** (option, coupée par défaut, onglet Réglages) : une carte sans image reçoit la vignette de son article Wikipédia (seul le titre est envoyé à Wikipédia). Jamais pour une image masquée par le site.
+- **Récap des paquets** (onglet Paquets) : chaque paquet ouvert, à la main ou par l'ouverture auto, est noté : nombre de paquets (dont combien en auto) et de cartes, répartition par rareté, shiny, valeur totale au prix moyen du moment de l'ouverture, les 3 meilleurs tirages. Si l'extension « WikiMasters - Prix moyen collection » est installée, ses compteurs de tirages (par rareté) sont repris une fois comme point de départ de la répartition : sans prix ni détail, et sans compter deux fois les paquets que les deux extensions ont vus. Une carte « L+ » compte en L. Le bouton « Remettre le récap à zéro » repart de rien, cartes reprises comprises ; au-delà de 10 000 paquets (environ 50 000 cartes), les plus anciens sont oubliés.
 - **Nouveautés** : après une mise à jour, un point sur l'icône ; le bouton « Nouveautés » du panneau liste ce qui a changé, avec un bouton pour activer chaque nouvelle option.
 - **Bonne affaire / surcoté** (marché, option de l'onglet Enchères) : à côté du prix, `−34 %` en vert quand l'enchère finit dans moins de 15 minutes et que la mise minimum est au moins 25 % sous la cote, `+60 %` en rouge quand elle la dépasse d'au moins 50 %. Seulement avec un prix fiable, jamais pour un shiny.
 - **Composer une offre d'échange** : dans la fenêtre « Échanger avec … », la barre du site affiche la valeur de chaque côté (cartes choisies à la cote, plus les WB), et l'écart dessous, en vert ou en rouge ; le détail carte par carte est dans l'onglet Page du panneau. Le site ne montre que les cartes de l'onglet ouvert : ouvre les deux onglets pour compter les deux côtés. Sur la page des échanges, le bilan d'un échange déjà envoyé se déplie pour montrer chaque carte en entier, avec sa rareté et son prix.
@@ -102,21 +103,15 @@ Cocher une fonction demande d'accepter un avertissement : WikiMastered n'est pas
 
 | Fonction | Ce qu'elle fait |
 |---|---|
-| Ouverture auto des paquets | voir ci-dessous |
-| Tentative de déblocage du marché | voir ci-dessous |
+| Ouverture auto des paquets | voir ci-dessous ; son état s'affiche dans l'onglet Paquets |
 | Défausse à l'ouverture des paquets | à chaque paquet ouvert, défausse les cartes qui répondent aux règles de l'onglet Paquets |
 | Défausse depuis le panneau | boutons **Défausser** du dernier paquet (onglet Page) et défausse en masse (onglet Collection) |
 | Mise en vente depuis le panneau | bouton **Vendre** (onglets Filtres et Enchères › Vente) |
-| Prix partagés | voir [Prix partagés](#prix-partagés-essai-désactivé-par-défaut) |
+| Prix partagés | voir [Prix partagés](#prix-partagés-fonctionnalité-expérimentale) |
 
 Ce n'est pas une protection : le dépôt est public (seule l'empreinte de chaque code y figure). C'est seulement pour que ces fonctions ne soient pas là d'office.
 
-L'automatisation par clic ne change jamais de page sous tes yeux : l'extension attend que tu n'aies ni cliqué, ni tapé, ni fait défiler depuis 5 minutes.
-
-- **Ouverture auto des packs** : sur `/pulls`, l'extension clique sur « Ouvrir un paquet » dès qu'un paquet est disponible, puis recharge la page (plutôt que de faire défiler les cartes une à une). Sans paquet prêt, elle recharge `/pulls` toutes les 3 minutes. Si le site limite les ouvertures (trop rapprochées, ou limite du jour), elle attend la date qu'il indique. Si l'ouverture d'un paquet est bloquée par une vérification, elle rejoint `/pulls`, attend que tu la valides, puis revient à ta page (au plus un départ toutes les 10 minutes, et jamais sans 5 minutes d'inactivité, comptées sur toutes les pages du site). Elle ne clique jamais sur une vérification.
-- **Dernier paquet et paquets du jour** (onglet Paquets) : chaque carte du dernier paquet, nouvelle ou doublon (d'après ta collection), son prix et la valeur du paquet ; les taux de tirage du jour, remis à zéro à minuit.
-- **Récap des paquets** : chaque paquet ouvert, par l'automatisation ou à la main, est noté dans le panneau de l'extension : nombre de paquets (dont combien en auto) et de cartes, répartition par rareté, shiny, valeur totale au prix moyen du moment de l'ouverture, les 3 meilleurs tirages. Si l'extension « WikiMasters - Prix moyen collection » est installée, ses compteurs de tirages (par rareté) sont repris une fois comme point de départ de la répartition : sans prix ni détail, et sans compter deux fois les paquets que les deux extensions ont vus. Une carte « L+ » compte en L. Le bouton « Remettre le récap à zéro » repart de rien, cartes reprises comprises ; au-delà de 10 000 paquets (environ 50 000 cartes), les plus anciens sont oubliés.
-- **Tentative de déblocage marché** : si le marché est bloqué depuis 5 minutes, l'extension va sur `/collection`, met la première carte aux enchères à 100 000 WB pour 10 minutes, laisse la vérification apparaître, puis revient. **Attention : c'est une vraie enchère.** La carte est bloquée pendant 10 minutes et vendue si quelqu'un paie ce prix.
+**Ouverture auto des paquets** : sur `/pulls`, l'extension clique sur « Ouvrir un paquet » dès qu'un paquet est disponible, puis recharge la page (plutôt que de faire défiler les cartes une à une). Sans paquet prêt, elle recharge `/pulls` toutes les 3 minutes. Si le site limite les ouvertures (trop rapprochées, ou limite du jour), elle attend la date qu'il indique. Si l'ouverture d'un paquet est bloquée par une vérification, elle rejoint `/pulls`, attend que tu la valides, puis revient à ta page (au plus un départ toutes les 10 minutes). Elle ne change jamais de page sous tes yeux : elle attend que tu n'aies ni cliqué, ni tapé, ni fait défiler depuis 5 minutes, sur toutes les pages du site. Elle ne clique jamais sur une vérification.
 
 ## Comment ça marche (pour apprendre)
 
@@ -138,15 +133,17 @@ flowchart LR
 |---|---|
 | [`manifest.json`](manifest.json) | La carte d'identité : nom, version, sites concernés (`host_permissions`), droits (`storage`), scripts à injecter. Manifest V3, le format actuel de Chrome et Firefox. |
 | [`src/inject.js`](src/inject.js) | Tourne **dans** la page (`"world": "MAIN"`), avant le site. Il enveloppe `window.fetch` pour recopier les réponses de l'API ; `lib.js` y cherche les cartes, où qu'elles soient. Il signale aussi à `click.js` chaque ouverture de paquet, réussie ou bloquée par une vérification. Il ne modifie aucune réponse. |
-| [`src/click.js`](src/click.js) | L'automatisation par clic : deux boucles (paquets, marché) qui relisent leurs réglages à chaque tour et se passent le relais d'une page à l'autre par `chrome.storage.local`. Son état s'affiche dans le panneau de l'extension. |
+| [`src/click.js`](src/click.js) | L'ouverture auto des paquets (fonctionnalité expérimentale) : une boucle qui relit à chaque tour si elle est active, et se passe le relais d'une page à l'autre par `chrome.storage.local`. Son état s'affiche dans l'onglet Paquets. |
 | [`src/content.js`](src/content.js) | Le *content script* : il voit la page (le DOM) mais vit dans un monde à part, invisible du site. Il reçoit les réponses copiées, demande les prix, pose les badges et le bilan des échanges, et répond au panneau de l'extension. |
 | [`src/panel.html`](src/panel.html), [`src/panel.js`](src/panel.js) | Le panneau latéral (`side_panel` pour Chrome, `sidebar_action` pour Firefox) : onglets Page, Collection, Filtres, Souhaits, Enchères, Paquets, Réglages. Il demande tout au content script de l'onglet du site. |
+| [`src/news.js`](src/news.js) | Les nouveautés de chaque version, montrées par le bouton « Nouveautés » du panneau. |
 | [`src/background.js`](src/background.js) | Le script d'arrière-plan, seul à parler au serveur de prix partagés : le content script n'a pas le droit d'appeler un autre site que wiki-masters.com. |
-| [`server/`](server/) | Le serveur de prix partagés (Cloudflare Worker + base D1), optionnel : voir [server/README.md](server/README.md). |
-| [`src/lib.js`](src/lib.js) | Les calculs purs (prix moyen, cartes et échanges d'une réponse, bilan d'un échange, récap des paquets) : aucun accès au navigateur, donc testables simplement. |
+| [`server/`](server/) | Le serveur de prix partagés (Cloudflare Worker + base D1), pour la fonctionnalité expérimentale du même nom : voir [server/README.md](server/README.md). |
+| [`src/lib.js`](src/lib.js) | Les calculs purs (prix moyen, cartes et échanges d'une réponse, bilan d'un échange, récap des paquets, filtres, défausse) et la liste des fonctionnalités expérimentales : aucun accès au navigateur, donc testables simplement. |
 | [`src/styles.css`](src/styles.css) | Le style des badges et du bilan, tout préfixé `wme-`. |
 | [`icons/`](icons/) | L'icône, dessinée par [`tools/icons.py`](tools/icons.py) (Python sans dépendance). |
-| [`tests/`](tests/) | Les tests de `lib.js` et des règles du serveur (`server/src/logic.js`), avec le lanceur de tests intégré à Node. |
+| [`tests/`](tests/) | Les tests de `lib.js` et des règles du serveur (`server/src/logic.js`), et un garde-fou qui vérifie que toute fonction appelée est déclarée, avec le lanceur de tests intégré à Node. |
+| [`store/`](store/) | Ce qu'il faut pour publier sur le Chrome Web Store et addons.mozilla.org (plus tard). |
 
 Points à retenir :
 
@@ -154,7 +151,7 @@ Points à retenir :
 - **Le site change sans prévenir.** Ses classes CSS sont générées et bougent à chaque mise à jour. On retrouve donc une carte par son **titre** dans le texte de la page, puis on remonte au premier parent qui contient une image : c'est la tuile de la carte. L'idée vient de [wm-qol](https://github.com/Kitsoune/wm-qol).
 - **Copies gardées par le site.** Certaines pages (Collection globale) gardent leur dernière réponse dans le `sessionStorage` de l'onglet et ne la redemandent pas : l'extension y lit aussi les cartes.
 - **Application d'une seule page.** Le site remplace des morceaux de page sans recharger. Un `MutationObserver` relance la pose des badges quand la page change.
-- **Des clics comme les tiens.** `click.js` appelle `bouton.click()` sur les boutons du site, qu'il retrouve par leur texte ou leur image. Pour remplir un champ géré par React, écrire `input.value` ne suffit pas : on passe par le *setter* natif du navigateur, puis on émet les événements `input` et `change`. Les gestes simulés ont `isTrusted` à `false` : c'est ainsi que l'extension distingue tes vrais clics des siens.
+- **Des clics comme les tiens.** `click.js` appelle `bouton.click()` sur le bouton « Ouvrir un paquet » du site, qu'il retrouve par son image. Les gestes simulés ont `isTrusted` à `false` : c'est ainsi que l'extension distingue tes vrais clics des siens.
 - **Rien d'interprété.** Les titres viennent du site : ils sont posés en texte (`textContent`), jamais en HTML (`innerHTML`), pour qu'un titre piégé ne puisse pas exécuter de code.
 
 ## Développement
@@ -164,7 +161,7 @@ npm test         # tests de src/lib.js et server/src/logic.js (Node 20 ou plus, 
 npm run build    # dist/wikimastered-extension-<version>-chrome.zip et -firefox.zip (un manifeste par navigateur)
 ```
 
-Publier une version : monter `version` dans `manifest.json` et `package.json`, fusionner, puis pousser l'étiquette `v<version>` (`git tag v0.4.0 && git push origin v0.4.0`). Le workflow [`release.yml`](.github/workflows/release.yml) teste, fabrique l'archive et crée la page de la version avec le `.zip`.
+Publier une version : monter `version` dans `manifest.json` et `package.json`, fusionner, puis pousser l'étiquette `v<version>` (`git tag v1.0.0 && git push origin v1.0.0`). Le workflow [`release.yml`](.github/workflows/release.yml) teste, fabrique l'archive et crée la page de la version avec les deux `.zip`. Chaque version ajoute une entrée courte à [`src/news.js`](src/news.js) (règles en tête du fichier).
 
 Après une modification, clique sur ↻ dans `chrome://extensions` (ou **Recharger** dans `about:debugging`), puis recharge la page du site. Les erreurs du content script s'affichent dans la console de la page (F12).
 
@@ -173,7 +170,7 @@ Après une modification, clique sur ↻ dans `chrome://extensions` (ou **Recharg
 - **Shiny** : le site ne donne aucun prix propre aux shiny (son historique les mélange aux cartes ordinaires). Le badge d'une carte shiny affiche `✦ ?`, avec le prix de la carte ordinaire dans l'infobulle. Le bot relève les vraies ventes shiny : la v2 (synchro avec le bot) pourra les afficher.
 - **Rareté d'une tuile** : lue sur le badge de rareté de la carte (« SR », « L✦ »…), dont le badge de prix reprend le style. Sans badge de rareté, le prix prend un style neutre et la rareté vient des données du site ; `?` si la carte y existe en plusieurs raretés.
 - **Bilan d'un échange** : posé sous les cartes de l'échange, dès qu'au moins une carte de chaque côté est visible (une carte sans image n'est pas repérée, mais son prix compte quand même). Une carte shiny ou sans vente compte pour 0 et le bilan le signale (« 1 carte sans prix »).
-- **Automatisation par clic** : les boutons sont retrouvés par leur texte (« Ouvrir un paquet », « Mettre aux enchères », « Lancer l'enchère ») : si le site les renomme, l'étape échoue et l'extension revient à ta page. Le déblocage du marché attend un signal (`wmNeedVerify`) que rien n'écrit encore : pour l'instant, il ne se déclenche pas.
+- **Ouverture auto des paquets** : le bouton est retrouvé par son image (« Ouvrir un paquet ») : si le site le change, l'ouverture ne se fait plus et l'extension revient à ta page.
 - **`?` sur un badge** : le site a refusé la lecture du prix trois fois de suite (souvent parce qu'il est surchargé, ou qu'une autre extension le sollicite en même temps). Survole le badge pour l'erreur ; nouvel essai au bout de 10 minutes.
 
 ## Licence

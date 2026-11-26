@@ -994,8 +994,6 @@ const WME = (() => {
   const LABS = [
     { id: "openPacks", hash: "47b0a7445e141956233fda71ec72ac5a72b1d0b448434e9f05e7da4169b9e677", label: "Ouverture auto des paquets",
       detail: "Sur /pulls, l'extension clique sur « Ouvrir un paquet » dès qu'un paquet est disponible (après 5 min sans clic, frappe ni défilement)." },
-    { id: "unblockMarket", hash: "9ce668cc03ca9de2595a68c267641c199d1f6e69f020e170d23fe939f49f6caf", label: "Tentative de déblocage du marché",
-      detail: "Si le marché est bloqué, l'extension met la première carte de /collection aux enchères à 100 000 WB pour 10 min : c'est une vraie enchère." },
     { id: "discardOnOpen", hash: "2cbf1d49acbdbf479d5330b278cca8cd200ae2c28fa3afef676fa70b2c84f2ee", label: "Défausse à l'ouverture des paquets",
       detail: "À chaque paquet ouvert, les cartes qui répondent à tes règles (onglet Paquets) sont défaussées tout de suite, contre 1 WB chacune. C'est définitif." },
     { id: "discardPanel", hash: "f5adc641ec08cb8fbe7eeecd48e3ba1a09c76bff4c2df3ebc80dafe2410b2919", label: "Défausse depuis le panneau",
