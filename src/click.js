@@ -116,7 +116,14 @@
   // Boucle d'ouverture de packs sur /pulls et de relais vers /pulls quand wmNeedClick est actif.
   async function packTick() {
     try {
-      const autoOn = await openPacksOn();
+      // Fonction coupée : ni clic, ni relais, ni rechargement. Les drapeaux laissés par une vérification du site
+      // (« need-click ») ou un relais d'avant sont effacés : sans ça, la page se rechargeait pendant que le joueur
+      // ouvrait ses paquets lui-même, et il ne voyait pas ses cartes.
+      if (!(await openPacksOn())) {
+        statusMessage = "Désactivé";
+        await chrome.storage.local.remove([FLAG_NEED_CLICK, FLAG_RETURN_TO]);
+        return;
+      }
       const { [FLAG_NEED_CLICK]: needClick, [FLAG_RETURN_TO]: rawRelay } =
         await chrome.storage.local.get([FLAG_NEED_CLICK, FLAG_RETURN_TO]);
 
@@ -147,10 +154,6 @@
       }
 
       const relayActive = Boolean(needClick);
-      if (!autoOn && !relayActive && !relay) {
-        statusMessage = "Désactivé";
-        return;
-      }
 
       // Le site a demandé d'attendre : ni clic ni relais avant la fin de la pause.
       const pauseMessage = await packPauseMessage();
@@ -178,17 +181,6 @@
         const avail = availablePacks();
         if (btn && !btn.disabled && (avail === null || avail > 0)) {
           clickedAt = Date.now();
-          // Si on ouvre un pack uniquement pour lever un relais (autoClickPack décoché), on enregistre startedAt
-          // dans le stockage afin que le rechargement post-clic sache qu'il doit revenir à la page initiale.
-          if (relayActive && !autoOn) {
-            const currentRelay = relay || {
-              to: location.pathname + location.search,
-              startedAt: clickedAt,
-              openedAt: null,
-            };
-            if (!currentRelay.startedAt) currentRelay.startedAt = clickedAt;
-            await chrome.storage.local.set({ [FLAG_RETURN_TO]: currentRelay });
-          }
           statusMessage = "Clic sur « Ouvrir un paquet »";
           autoClickAt = Date.now();
           btn.click();
