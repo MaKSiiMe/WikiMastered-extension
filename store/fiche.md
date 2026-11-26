@@ -28,7 +28,7 @@ Dans le panneau latéral :
 
 Respect du site : l'extension lit les mêmes informations que le site, lentement (au plus 10 lectures de prix par 30 secondes), et s'arrête dès que le site le demande. Par défaut, elle ne fait que lire : elle n'achète, ne mise, ne vend ni ne défausse rien à ta place.
 
-Fonctions avancées, désactivées et cachées par défaut : ouverture automatique des paquets, défausse (à l'ouverture d'un paquet ou en masse) et mise en vente depuis le panneau, prix partagés entre joueurs. Chacune se débloque par un code dans les Réglages, puis s'active après un avertissement : extension non officielle, règles du site, responsabilité du joueur. La défausse et la vente demandent une confirmation à chaque fois et utilisent les mêmes requêtes que les boutons du site. L'extension ne mise jamais et s'arrête toujours devant une vérification humaine du site.
+Fonctions avancées, désactivées par défaut : ouverture automatique des paquets, défausse (à l'ouverture d'un paquet ou en masse) et mise en vente depuis le panneau, prix partagés entre joueurs. Chacune s'active par sa case dans les Réglages, après un avertissement : extension non officielle, règles du site, responsabilité du joueur. La défausse et la vente demandent une confirmation à chaque fois et utilisent les mêmes requêtes que les boutons du site. L'extension ne mise jamais et s'arrête toujours devant une vérification humaine du site.
 
 Vie privée : tout reste sur ton ordinateur. Trois options, coupées par défaut, envoient des données ailleurs (prix partagés entre joueurs ; titres des cartes à Wikipédia et Wikidata pour les images et les étiquettes de thème) : voir la politique de confidentialité.
 

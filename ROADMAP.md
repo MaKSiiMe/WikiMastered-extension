@@ -17,7 +17,7 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 ## v1 : le collectionneur (1.0.0)
 
 ### Prix
-- [x] Prix partagés entre joueurs et bots (serveur commun, `server/`), en essai depuis la 0.5 : fonctionnalité expérimentale en 1.0, réservée aux participants qui ont un jeton. Lecture ouverte à tous : v1.x (#85).
+- [x] Prix partagés entre joueurs et bots (serveur commun, `server/`), en essai depuis la 0.5 : fonction avancée en 1.0, réservée aux participants qui ont un jeton. Lecture ouverte à tous : v1.x (#85).
 - [x] Nombre de ventes derrière chaque prix ; « ≈ » quand il y en a peu, seuil réglable. (Toolbox, henchoznoe) [#13](https://github.com/MaKSiiMe/WikiMastered-extension/issues/13) (0.6.2)
 - [x] Courbe de prix au survol d'un badge : un relevé local par rareté et par jour, gardé 90 jours, trous affichés. (henchoznoe) [#14](https://github.com/MaKSiiMe/WikiMastered-extension/issues/14) (0.10.0)
 - [x] Médiane et fourchette (Q1-Q3) quand assez de ventes, en plus du prix moyen du site. (henchoznoe) [#15](https://github.com/MaKSiiMe/WikiMastered-extension/issues/15) (0.10.0)
@@ -52,7 +52,7 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] Panneau aux couleurs, polices et raretés du site, thème clair ou sombre comme lui. (0.13.0)
 - [x] Onglet Page selon la page du site : paquets restants partout, défausse du dernier paquet, collection, marché, profil d'un ami et offre d'échange, fiche d'une carte (amis qui l'ont, prochaines enchères), succès. (0.14.0)
 - [x] Défausse à l'ouverture des paquets, réglable (raretés, cote maximum, doublons seulement), coupée par défaut. (WikiMasters QoL) (0.14.0)
-- [x] Fonctionnalités expérimentales : tout ce qui agit à la place du joueur (automatisation, défausse, vente, prix partagés) caché par défaut, débloqué par un code dans Réglages, activé après un avertissement. (0.19.0)
+- [x] Fonctions avancées : tout ce qui agit à la place du joueur (automatisation, défausse, vente, prix partagés) caché par défaut, débloqué par un code dans Réglages, activé après un avertissement. (0.19.0) Depuis la 1.2.0 : plus de code, toutes visibles dans Réglages, une case chacune, avertissement gardé.
 
 ## v1.x : retours des premiers joueurs
 
@@ -93,7 +93,7 @@ Avec [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : l'extension affi
 - **Passer la vérification anti-bot** : l'extension s'arrête dessus, comme tous les outils sérieux (LeKenT1 raconte 1 905 tentatives en 77 min avant d'ajouter cet arrêt).
 - **Remplacer toute l'interface du site** (Nogze/wikimasters-enhanced), gadgets (Pong).
 
-Rappel : les règles de la communauté WikiMasters interdisent les bots et les scripts qui ouvrent des paquets, misent ou échangent à la place du joueur. L'ouverture auto des paquets, la défausse automatique et les autres actions faites à la place du joueur sont donc des fonctionnalités expérimentales, cachées par défaut (1.0).
+Rappel : les règles de la communauté WikiMasters interdisent les bots et les scripts qui ouvrent des paquets, misent ou échangent à la place du joueur. L'ouverture auto des paquets, la défausse automatique et les autres actions faites à la place du joueur sont donc des fonctions avancées, coupées par défaut, une case chacune dans Réglages avec un avertissement (1.2).
 
 ## Outils existants
 

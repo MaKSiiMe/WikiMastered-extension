@@ -101,12 +101,12 @@ async function ask(type, extra) {
   }
 }
 
-// Fonctionnalités expérimentales (src/lib.js, LABS) : débloquées par un code, puis cochées. Lu dans le stockage, pas
+// Fonctions avancées (src/lib.js, LABS) : cochées une à une. Lu dans le stockage, pas
 // par l'onglet du site, pour que les onglets qui n'interrogent pas son état sachent quoi montrer.
 const LABS_KEY = "wmLabs";
 async function readLabs() {
   const { [LABS_KEY]: labs } = await chrome.storage.local.get(LABS_KEY);
-  return { unlocked: [], on: [], ...(labs || {}) };
+  return { on: Array.isArray(labs && labs.on) ? labs.on : [] };
 }
 const labActive = async (id) => WME.labOn(await readLabs(), id);
 
@@ -994,7 +994,7 @@ async function packsView() {
   ];
 }
 
-// Défausse automatique à l'ouverture d'un paquet (src/content.js, autoDiscard) : fonctionnalité expérimentale, active
+// Défausse automatique à l'ouverture d'un paquet (src/content.js, autoDiscard) : fonction avancée, active
 // dès qu'elle est cochée dans Réglages. Ici, ses règles ; chaque changement est enregistré tout de suite.
 function discardSettings(rules) {
   const r = { rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true, ...rules };
@@ -1003,7 +1003,7 @@ function discardSettings(rules) {
     on: { change: () => { r.maxPrice = max.value === "" ? null : Math.max(0, Math.round(Number(max.value))); save(); } } });
   return h("div", { className: "box" },
     h("h3", {}, "Défausse à l'ouverture des paquets (active)", info("Jamais une shiny. Avec une cote maximum, une carte dont le prix n'est pas " +
-      "encore connu attend sa lecture (2 min au plus) puis est gardée.\nPour l'arrêter : Réglages, Fonctionnalités expérimentales.")),
+      "encore connu attend sa lecture (2 min au plus) puis est gardée.\nPour l'arrêter : Réglages, Fonctions avancées.")),
     h("div", {}, h("span", { className: "muted" }, "Raretés : "), ...RARITY_CODES.map((code) => h("label", { className: "inline" },
       h("input", { type: "checkbox", checked: r.rarities.includes(code), on: { change: (e) => {
         r.rarities = e.target.checked ? [...r.rarities, code] : r.rarities.filter((x) => x !== code);
@@ -1231,7 +1231,8 @@ async function settingsView() {
     h("h3", {}, "Données gardées par l'extension"),
     await dataSection(),
     ...((await labActive("sharedPrices")) ? await sharedSection() : []),
-    h("h3", {}, "Fonctionnalité expérimentale"),
+    h("h3", {}, "Fonctions avancées", info("Ce qui agit sur ton compte à ta place : ouvrir les paquets, défausser, vendre, partager les prix. " +
+      "Tout est coupé par défaut ; chaque fonction s'active par sa case, après un avertissement à accepter.")),
     await labsSection(),
   ];
 }
@@ -1250,46 +1251,22 @@ async function sharedSection() {
   ];
 }
 
-// Fonctionnalités expérimentales : un champ sans aide ni suggestion ; un code juste ajoute la fonction à la liste en
-// dessous, décochée. La cocher demande d'accepter l'avertissement. « Retirer » l'efface (code à retaper).
+// Fonctions avancées : toutes listées, chacune avec sa case ; la cocher demande d'accepter l'avertissement.
 async function labsSection() {
-  const list = h("div", {});
   const save = (labs) => chrome.storage.local.set({ [LABS_KEY]: labs });
-  const drawList = async () => {
-    const labs = await readLabs();
-    fill(list, ...WME.LABS.filter((lab) => labs.unlocked.includes(lab.id)).map((lab) => {
-      const box = h("input", { type: "checkbox", checked: labs.on.includes(lab.id), on: { change: async () => {
-        if (box.checked && !await labWarning(lab)) { box.checked = false; return; }
-        const now = await readLabs();
-        await save({ ...now, on: box.checked ? [...new Set([...now.on, lab.id])] : now.on.filter((x) => x !== lab.id) });
-        if (lab.id === "sharedPrices") draw(true); // ses réglages apparaissent ou disparaissent plus haut
-      } } });
-      const forget = h("button", { className: "act small", title: "Retirer de la liste (il faudra retaper le code)", on: { click: async () => {
-        const now = await readLabs();
-        await save({ unlocked: now.unlocked.filter((x) => x !== lab.id), on: now.on.filter((x) => x !== lab.id) });
-        drawList();
-      } } }, "Retirer");
-      return h("div", {}, h("label", {}, box, ` ${lab.label}`, info(lab.detail), " ", forget));
-    }));
-  };
-  const input = h("input", { type: "text", className: "wide", autocomplete: "off", spellcheck: false, ariaLabel: "Fonctionnalité expérimentale",
-    on: { keydown: async (e) => {
-      if (e.key !== "Enter") return;
-      const code = input.value;
-      input.value = "";
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(WME.labCode(code)));
-      const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      const lab = WME.LABS.find((l) => l.hash === hash);
-      if (!lab) return;
+  const labs = await readLabs();
+  return h("div", {}, ...WME.LABS.map((lab) => {
+    const box = h("input", { type: "checkbox", checked: WME.labOn(labs, lab.id), on: { change: async () => {
+      if (box.checked && !await labWarning(lab)) { box.checked = false; return; }
       const now = await readLabs();
-      if (!now.unlocked.includes(lab.id)) await save({ ...now, unlocked: [...now.unlocked, lab.id] });
-      drawList();
+      await save({ on: box.checked ? [...new Set([...now.on, lab.id])] : now.on.filter((x) => x !== lab.id) });
+      if (lab.id === "sharedPrices") draw(true); // ses réglages apparaissent ou disparaissent plus haut
     } } });
-  await drawList();
-  return h("div", {}, input, list);
+    return h("div", {}, h("label", {}, box, ` ${lab.label}`, info(lab.detail)));
+  }));
 }
 
-// Avant d'activer une fonctionnalité expérimentale : extension non officielle, responsabilité du joueur.
+// Avant d'activer une fonction avancée : extension non officielle, responsabilité du joueur.
 function labWarning(lab) {
   return dialog({
     title: lab.label,
@@ -1319,7 +1296,7 @@ const DATA = [
   { key: "wmLimitLog", label: "Relevé des refus du site", clear: true, backup: true },
   { key: "settings", label: "Réglages", clear: false, backup: true },
   { key: "shared", label: "Prix partagés : adresse et jeton", clear: false, backup: true },
-  { key: "wmLabs", label: "Fonctionnalités expérimentales", clear: false, backup: true },
+  { key: "wmLabs", label: "Fonctions avancées cochées", clear: false, backup: true },
 ];
 const kb = (bytes) => (bytes < 1024 ? `${bytes} o` : `${(bytes / 1024).toLocaleString("fr-FR", { maximumFractionDigits: bytes < 10240 ? 1 : 0 })} Ko`);
 

@@ -1,4 +1,4 @@
-// Ouverture auto des paquets (fonctionnalité expérimentale « openPacks », src/lib.js LABS), dans le monde isolé partagé
+// Ouverture auto des paquets (fonction avancée « openPacks », src/lib.js LABS), dans le monde isolé partagé
 // avec src/content.js :
 // - garde-fous : pause si une vérification Turnstile est affichée, et 5 min sans action du joueur avant toute
 //   navigation ou rechargement de confort ;
@@ -9,7 +9,7 @@
   window.__wmeClick = true;
 
   // Clés de stockage partagées dans chrome.storage.local.
-  const LABS_KEY = "wmLabs";                  // fonctionnalités expérimentales débloquées et cochées (src/lib.js)
+  const LABS_KEY = "wmLabs";                  // fonctions avancées cochées (src/lib.js)
   const FLAG_NEED_CLICK = "wmNeedClick";
   const FLAG_RETURN_TO = "wmReturnTo";         // objet { to, startedAt, openedAt } persisté entre rechargements
   const FLAG_LAST_INPUT = "wmLastInput";       // date de la dernière action réelle du joueur, sur n'importe quelle page
@@ -56,7 +56,7 @@
   const verificationShown = () =>
     Boolean(document.querySelector('iframe[src*="challenges.cloudflare.com"], .cf-turnstile, [data-sitekey]'));
 
-  // Active seulement débloquée par son code et cochée dans Réglages (src/lib.js, LABS).
+  // Active seulement cochée dans Réglages, Fonctions avancées (src/lib.js, LABS).
   async function openPacksOn() {
     const { [LABS_KEY]: labs } = await chrome.storage.local.get(LABS_KEY);
     return WME.labOn(labs, "openPacks");

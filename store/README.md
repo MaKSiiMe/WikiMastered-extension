@@ -11,7 +11,7 @@ Tout ce qui ne demande pas de compte est prêt : archives par navigateur, manife
 
 Validé par `web-ext lint` (outil officiel de Mozilla) : 0 erreur. Il reste 2 avertissements sur `sidePanel.setPanelBehavior`, un appel propre à Chrome et protégé par un test de présence.
 
-L'archive envoyée est la version complète, fonctionnalités expérimentales comprises (cachées par défaut) : elles sont décrites dans la fiche et dans les instructions de test, pour que l'examen ne tombe pas sur des fonctions non déclarées.
+L'archive envoyée est la version complète, fonctions avancées comprises (coupées par défaut) : elles sont décrites dans la fiche et dans les instructions de test, pour que l'examen ne tombe pas sur des fonctions non déclarées.
 
 ## Chrome Web Store (#29)
 
@@ -61,10 +61,10 @@ Politique de confidentialité : `https://github.com/MaKSiiMe/WikiMastered-extens
 
 ### Instructions de test
 
-Le champ est petit (le texte d'un ami y a été coupé, l'extension est quand même passée) : ce bloc tient en moins de 600 caractères. Remplace `<CODE>` par un code de fonction expérimentale si tu veux qu'ils puissent les voir, ou supprime la dernière phrase.
+Le champ est petit (le texte d'un ami y a été coupé, l'extension est quand même passée) : ce bloc tient en moins de 500 caractères.
 
 ```
-Extension non officielle pour le jeu wiki-masters.com (compte gratuit à créer sur le site). Connecté, ouvrir la page Marché ou Collection : un badge de prix apparaît sur chaque carte. L'icône de l'extension ouvre le panneau latéral (Collection, Filtres, Souhaits…). Rien n'agit sur le compte par défaut. Les fonctions qui agissent (ouverture des paquets, défausse, vente) sont cachées : Réglages > Fonctionnalité expérimentale, code <CODE>, puis avertissement à accepter.
+Extension non officielle pour le jeu wiki-masters.com (compte gratuit à créer sur le site). Connecté, ouvrir la page Marché ou Collection : un badge de prix apparaît sur chaque carte. L'icône de l'extension ouvre le panneau latéral (Collection, Filtres, Souhaits…). Rien n'agit sur le compte par défaut. Les fonctions qui agissent (ouverture des paquets, défausse, vente) : Réglages > Fonctions avancées, cocher, puis accepter l'avertissement.
 ```
 
 ## Firefox, addons.mozilla.org (#30)
@@ -76,8 +76,8 @@ Extension non officielle pour le jeu wiki-masters.com (compte gratuit à créer 
 5. **Notes pour les validateurs** : le bloc « Instructions de test » ci-dessus.
 6. La collecte de données est déjà déclarée dans le manifeste (`data_collection_permissions`) : rien par défaut, « contenu du site » en option, demandé quand l'utilisateur active une option qui envoie des données (prix partagés, images Wikipédia, étiquettes de thème et GIF).
 
-## Fonctionnalités expérimentales
+## Fonctions avancées
 
-Les règles de la communauté Wiki Masters interdisent les scripts qui jouent à la place du joueur. Depuis la 1.0, tout ce qui agit sur le compte à sa place (ouverture auto des paquets, défausse, mise en vente, prix partagés) est caché : chaque fonction se débloque par un code, puis s'active après un avertissement (extension non officielle, règles du site, responsabilité du joueur). Décision du 26/11/2026 : on les envoie aux boutiques, décrites dans la fiche (paragraphe « Fonctions avancées ») et dans les instructions de test, comme d'autres extensions du jeu déjà publiées qui automatisent aussi.
+Les règles de la communauté Wiki Masters interdisent les scripts qui jouent à la place du joueur. Depuis la 1.0, tout ce qui agit sur le compte à sa place (ouverture auto des paquets, défausse, mise en vente, prix partagés) est coupé par défaut : chaque fonction s'active par sa case dans les Réglages, après un avertissement (extension non officielle, règles du site, responsabilité du joueur). Décision du 26/11/2026 : on les envoie aux boutiques, décrites dans la fiche (paragraphe « Fonctions avancées ») et dans les instructions de test, comme d'autres extensions du jeu déjà publiées qui automatisent aussi.
 
 Les deux écritures de la 1.1 (retrait des souhaits possédés, étiquettes automatiques) ne jouent pas à la place du joueur : ce sont des options ordinaires, coupées par défaut.
