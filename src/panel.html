@@ -79,9 +79,13 @@
       border: 1px solid var(--border); background: var(--surface-2); font-size: 12px; }
     .chip button { border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; padding: 0 4px; }
     .chip button:hover { color: var(--danger); }
-    /* « i » : détail au survol. */
-    .info { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 5px; vertical-align: 1px;
-      border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font: 600 10px/1 Outfit, system-ui, sans-serif; cursor: help; }
+    /* « i » : description d'une fonction, dans une bulle ouverte au clic (src/panel.js, info). */
+    .info { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin: 0 0 0 5px; padding: 0; vertical-align: 1px;
+      border-radius: 50%; border: 1px solid var(--muted); background: none; color: var(--muted); font: 600 10px/1 Outfit, system-ui, sans-serif; cursor: pointer; }
+    .info:hover, .info:focus-visible { border-color: var(--accent); color: var(--accent); }
+    .info-pop { position: fixed; z-index: 20; max-height: 60vh; overflow: auto; padding: 4px 10px; border-radius: 10px; border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--fg); font-size: 12px; box-shadow: 0 6px 24px #0006; }
+    .info-pop p { margin: 6px 0; }
     /* Deux sous-onglets (Enchères : Achat / Vente). */
     .seg { display: flex; gap: 2px; padding: 3px; margin: 0 0 8px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
     .seg button { flex: 1; padding: 5px 0; border: 0; border-radius: 8px; background: none; color: var(--muted); font: 600 13px/1.4 Outfit, system-ui, sans-serif; cursor: pointer; }
