@@ -1,5 +1,5 @@
-// Wikipédia et Wikidata pour les étiquettes de thème (src/content.js, autoTag), repris du bot WikiMastered
-// (src/core/wikidata.py). Aucune requête au site du jeu : rien ne compte pour sa vérification anti-bot.
+// Wikipédia et Wikidata pour les étiquettes de thème (src/content.js, autoTag). Aucune requête au site du jeu : rien
+// ne compte pour sa vérification anti-bot.
 // - chaque carte : l'API de Wikipédia (fr) donne l'élément Wikidata de son titre (redirections suivies), puis SPARQL ses
 //   liens directs « est un » (P31), « sous-classe de » (P279), « métier » (P106), « taxon parent » (P171) et sa
 //   description en français ;

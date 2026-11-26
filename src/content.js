@@ -14,7 +14,7 @@
   if (window.__wmeContent) return;
   window.__wmeContent = true;
 
-  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb, labOn, tagKey, themeTargets, hierarchy, themesOf, gifFile, copiesByCard, tagPlan } = WME;
+  const { rank, norm, quotes, reliable, MIN_SALES, currentWeek, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, RARITIES, addDailyValue, countSince, addLimitEvent, siteLimit, wb, labOn, tagKey, themeTargets, hierarchy, themeMatches, pickThemes, gifFile, copiesByCard, tagPlan } = WME;
 
   // ------------------------------------------------------------------ réglages
   const PRICES_KEY = "prices-v2";       // prix moyens du site (la 0.1 gardait un autre calcul sous « prices »)
@@ -79,7 +79,7 @@
     autoDiscard: { rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true },
     // wishPrune : retirer de la liste de souhaits les cartes possédées. autoTags : étiquettes automatiques (thèmes
     // Wikidata, « Doublon », « GIF »), à la demande ou toutes les 6 h (auto). Tout coupé par défaut.
-    wishPrune: false, autoTags: { themes: false, duplicate: false, gif: false, auto: false } };
+    wishPrune: false, autoTags: { themes: [], duplicate: false, gif: false, auto: false } };
   // Fonctionnalités expérimentales (src/lib.js, LABS) : tout ce qui agit à la place du joueur ne tourne que débloqué par
   // son code et coché dans les Réglages du panneau. Une action d'une fonction verrouillée est refusée ici aussi.
   let labs = { unlocked: [], on: [] };
@@ -1209,16 +1209,18 @@
   async function panelWishlist(refresh) {
     let wishes = await readWishlist(refresh);
     if (settings.wishPrune) {
-      await pruneWishlist().catch((error) => { wishPruned = { ...wishPruned, error: String((error && error.message) || error) }; });
+      await pruneWishlist();
       wishes = await readWishlist(false);
     }
+    const prunedLog = await store.get(WISH_PRUNED_KEY, []);
     startSharedFill(refresh); // les souhaits font partie des cartes synchronisées (en arrière-plan)
     const stale = !wishOwnersCache || Date.now() - wishOwnersCache.at > 30 * 60e3;
     if (refresh || (stale && !(wishOwnersError && Date.now() - wishOwnersTried < 5 * 60e3))) readWishOwners(refresh).catch(() => {});
     const summary = wishlistSummary(wishes, (id) => (usable(prices[id]) ? prices[id].q : null), (id) => owned.get(id));
     const known = wishOwnersCache && wishOwnersCache.given ? wishOwnersCache.owners : null;
     for (const item of summary.items) item.friends = known ? wishOwners(known[item.id], friendRowsOf(item.id)) : null;
-    return { ...summary, prune: settings.wishPrune, pruned: wishPruned, friends: { reading: Boolean(wishOwnersReading), at: wishOwnersCache && wishOwnersCache.at,
+    return { ...summary, prune: settings.wishPrune,
+      pruned: { count: prunedLog.length, titles: prunedLog.slice(0, 20).map((w) => w.title), error: wishPruneError }, friends: { reading: Boolean(wishOwnersReading), at: wishOwnersCache && wishOwnersCache.at,
       given: Boolean(wishOwnersCache && wishOwnersCache.given), error: wishOwnersError } };
   }
 
@@ -1229,11 +1231,11 @@
     const { token, userId } = await session(access.base);
     return { base: access.base, userId, headers: { apikey: access.apikey, authorization: `Bearer ${token}` } };
   }
-  async function supaWrite(method, query, body) {
+  async function supaWrite(method, query, body, prefer = "return=minimal") {
     const a = await supaAccess();
     return fetch(a.base + query, {
       method, credentials: "omit",
-      headers: { ...a.headers, prefer: "return=minimal", ...(body ? { "content-type": "application/json" } : {}) },
+      headers: { ...a.headers, prefer, ...(body ? { "content-type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
   }
@@ -1241,10 +1243,12 @@
   // Souhaits possédés retirés (réglage wishPrune, onglet Souhaits) : la même écriture que le bouton « Retirer » de la
   // page Souhaits du site (wishlist_items, user_id + card_id in (…)). Une carte possédée dans n'importe quelle rareté,
   // d'après la possession connue du site. ids : seulement ces cartes (un paquet ouvert) ; sinon toute la liste.
-  let wishPruned = { at: 0, titles: [], error: "" };
+  // Chaque carte retirée est notée : « Remettre » les rajoute toutes (restoreWishlist).
+  const WISH_PRUNED_KEY = "wmWishPruned"; // [{ id, title, at }], les plus récentes d'abord
+  let wishPruneError = "";
   let wishPruning = Promise.resolve(0);
   function pruneWishlist(ids) {
-    wishPruning = wishPruning.catch(() => 0).then(async () => {
+    wishPruning = wishPruning.then(async () => {
       if (!settings.wishPrune) return 0;
       const wishes = await readWishlist(false);
       const pool = ids ? new Set(ids.map(String)) : null;
@@ -1257,54 +1261,94 @@
         if (!response.ok) throw new Error(`Retrait de la liste de souhaits refusé (HTTP ${response.status})`);
         const done = new Set(chunk.map((w) => w.id));
         if (wishCache) wishCache.wishes = wishCache.wishes.filter((w) => !done.has(w.id));
-        wishPruned = { at: Date.now(), titles: [...chunk.map((w) => w.title), ...wishPruned.titles].slice(0, 20), error: "" };
+        const log = await store.get(WISH_PRUNED_KEY, []);
+        await store.set(WISH_PRUNED_KEY, [...chunk.map((w) => ({ id: w.id, title: w.title, at: Date.now() })), ...log].slice(0, 5000));
       }
+      wishPruneError = "";
       return gone.length;
+    }).catch((error) => {
+      wishPruneError = String((error && error.message) || error);
+      return 0;
     });
     return wishPruning;
   }
 
+  // « Remettre » : coupe le réglage et rajoute à la liste toutes les cartes retirées, comme l'ajout en lot du site
+  // (wishlist_items, on_conflict user_id,card_id, doublons ignorés). -> nombre de cartes remises
+  async function restoreWishlist() {
+    settings.wishPrune = false;
+    await store.set("settings", settings);
+    await wishPruning;
+    let log = await store.get(WISH_PRUNED_KEY, []);
+    const ids = [...new Set(log.map((w) => w.id))];
+    if (!ids.length) return 0;
+    const a = await supaAccess();
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const response = await supaWrite("POST", "wishlist_items?on_conflict=user_id,card_id", chunk.map((id) => ({ user_id: a.userId, card_id: id })),
+        "resolution=ignore-duplicates,return=minimal");
+      if (!response.ok) throw new Error(`Ajout à la liste de souhaits refusé (HTTP ${response.status})`);
+      const done = new Set(chunk);
+      log = log.filter((w) => !done.has(w.id));
+      await store.set(WISH_PRUNED_KEY, log);
+    }
+    wishCache = null; // relue au prochain affichage
+    return ids.length;
+  }
+
   // ------------------------------------------------------------------ étiquettes automatiques
-  // Comme le bot (worker « themes ») : thèmes lus sur Wikidata (règles src/themes.js) sur l'exemplaire gardé de chaque
-  // carte, « Doublon » sur ses autres exemplaires, « GIF » sur l'exemplaire gardé d'une carte animée (src/lib.js,
-  // tagPlan). Seulement les étiquettes qui existent sur le site (bouton « Créer » pour les autres). Écritures dans la
-  // table user_card_tags, comme l'éditeur d'étiquettes du site, par lots de 100 ; aucune requête aux routes /api du
-  // site. Wikipédia et Wikidata : src/wikidata.js. Classement gardé (wmThemes), relu si les règles changent.
-  const THEMES_KEY = "wmThemes";            // { version, themes: { titre: [thèmes] }, missing: { titre: date } }
+  // Thèmes lus sur Wikidata (règles src/themes.js, ceux cochés par le joueur) sur l'exemplaire gardé de chaque carte,
+  // « Doublon » sur ses autres exemplaires, « GIF » sur l'exemplaire gardé d'une carte animée (src/lib.js, tagPlan).
+  // D'abord un aperçu (cartes et étiquettes, rien n'est écrit), puis la pose sur demande ; le passage automatique (toutes
+  // les 6 h) pose directement. Les étiquettes cochées qui manquent sur le site sont créées à la pose (table tags, comme
+  // le bouton « Nouvelle étiquette » du site). Écritures dans user_card_tags, comme l'éditeur d'étiquettes du site, par
+  // lots de 100 ; aucune requête aux routes /api du site. Wikipédia et Wikidata : src/wikidata.js.
+  const THEMES_KEY = "wmThemes";            // { version, matches: { titre: { f, t } }, missing: { titre: date } }
   const PARENTS_KEY = "wmWikidataParents";  // { P279: { Q: [parents] }, P171: {…} } (src/lib.js, hierarchy)
   const FRAMES_KEY = "wmGifFrames";         // { fichier: nombre d'images }
-  const TAG_RUN_KEY = "wmTagRun";           // dernier passage : { at, running, beat, added, removed, error }
+  const TAG_RUN_KEY = "wmTagRun";           // dernière pose : { at, running, beat, added, removed, created, error, preview }
   const TAG_DUPLICATE = "Doublon";
   const TAG_GIF = "GIF";
   const TAG_COLORS = { [TAG_DUPLICATE]: "#6b7280", [TAG_GIF]: "#a855f7" };
   const TAG_EVERY_MS = 6 * 3600e3;          // passage automatique au plus toutes les 6 h
   const MISSING_RETRY_MS = 7 * 86400e3;     // article sans élément Wikidata : relu après 7 jours
   const TAG_GAP_MS = 300;                   // entre deux écritures
-  let tagJob = null; // { running, phase, done, total, added, removed, error, missing, at }
+  const TAG_PREVIEW_TTL_MS = 30 * 60e3;     // un aperçu plus ancien est refait avant la pose
+  const PREVIEW_CARDS = 500;                // cartes montrées par étiquette dans l'aperçu
+  const THEME_NAMES = WME_THEMES.themes.map((t) => t.name);
+  let tagJob = null; // { running, mode, phase, done, total, added, removed, created, error, preview, pending, at }
 
-  // Étiquettes voulues par les options cochées, dans l'ordre des règles.
-  function wantedTags(opts = settings.autoTags) {
-    const names = opts.themes ? [...WME_THEMES.themes.map((t) => t.name), ...Object.values(WME_THEMES.corrections).flat()] : [];
-    if (opts.duplicate) names.push(TAG_DUPLICATE);
-    if (opts.gif) names.push(TAG_GIF);
-    return [...new Set(names)];
+  const tagOptions = (o = settings.autoTags || {}) => ({
+    themes: Array.isArray(o.themes) ? THEME_NAMES.filter((n) => o.themes.includes(n)) : [],
+    duplicate: Boolean(o.duplicate), gif: Boolean(o.gif), auto: Boolean(o.auto),
+  });
+  const anyTag = (o) => Boolean(o.themes.length || o.duplicate || o.gif);
+  function wantedTags(opts) {
+    return [...opts.themes, ...(opts.duplicate ? [TAG_DUPLICATE] : []), ...(opts.gif ? [TAG_GIF] : [])];
   }
   const tagIds = (tags) => {
     const ids = {};
     for (const [id, name] of Object.entries(tags || {})) ids[tagKey(name)] ||= id;
     return ids;
   };
+  async function siteTags(a) {
+    const response = await fetch(`${a.base}tags?select=id,name&user_id=eq.${encodeURIComponent(a.userId)}`, { credentials: "omit", headers: a.headers });
+    if (!response.ok) throw new Error(`Lecture des étiquettes refusée (HTTP ${response.status})`);
+    const list = await response.json();
+    return Object.fromEntries((Array.isArray(list) ? list : []).filter((t) => t && t.id).map((t) => [t.id, String(t.name || "")]));
+  }
 
-  // Thèmes de chaque titre : corrections des règles, sinon le classement gardé ; les titres pas encore classés sont lus
-  // sur Wikidata, 50 à la fois, classement gardé après chaque lot. -> { titre: [thèmes] } (absent : pas encore classé)
+  // Ce que Wikidata dit de chaque titre (src/lib.js, themeMatches), indépendant des thèmes cochés : corrections des
+  // règles, sinon le classement gardé ; les titres pas encore classés sont lus, 50 à la fois, gardés après chaque lot.
+  // -> { titre: { f, t } } (absent : pas encore classé)
   async function classifyTitles(titles, progress) {
     const rules = WME_THEMES;
     const saved = await store.get(THEMES_KEY, null);
-    const known = saved && saved.version === rules.VERSION ? saved : { version: rules.VERSION, themes: {}, missing: {} };
+    const known = saved && saved.version === rules.VERSION && saved.matches ? saved : { version: rules.VERSION, matches: {}, missing: {} };
     const tree = hierarchy(await store.get(PARENTS_KEY, {}));
     const targets = themeTargets(rules);
     const fixed = (t) => Object.hasOwn(rules.corrections, t);
-    const todo = [...titles].filter((t) => !fixed(t) && !Object.hasOwn(known.themes, t) &&
+    const todo = [...titles].filter((t) => !fixed(t) && !Object.hasOwn(known.matches, t) &&
       !(known.missing[t] && Date.now() - known.missing[t] < MISSING_RETRY_MS)).sort();
     progress(0, todo.length);
     for (let i = 0; i < todo.length; i += 50) {
@@ -1320,16 +1364,16 @@
           continue;
         }
         delete known.missing[t];
-        known.themes[t] = themesOf(tree.facts(c, targets), rules);
+        known.matches[t] = themeMatches(tree.facts(c, targets), rules);
       }
       await store.set(THEMES_KEY, known);
       progress(i + chunk.length, todo.length);
     }
     const out = {};
     for (const t of titles) {
-      if (fixed(t)) out[t] = rules.corrections[t];
-      else if (Object.hasOwn(known.themes, t)) out[t] = known.themes[t];
-      else if (known.missing[t]) out[t] = [];
+      if (fixed(t)) out[t] = { f: rules.corrections[t], t: rules.corrections[t] };
+      else if (Object.hasOwn(known.matches, t)) out[t] = known.matches[t];
+      else if (known.missing[t]) out[t] = { f: [], t: [] };
     }
     return out;
   }
@@ -1345,125 +1389,181 @@
     return frames;
   }
 
-  function autoTag() {
-    if (tagJob && tagJob.running) return tagJob;
-    const opts = { ...settings.autoTags };
-    const job = tagJob = { running: true, phase: "Lecture de la collection", done: 0, total: 0, added: 0, removed: 0, error: "", missing: [], at: Date.now() };
-    const beat = () => store.set(TAG_RUN_KEY, { at: job.at, running: true, beat: Date.now() });
-    (async () => {
-      if (!opts.themes && !opts.duplicate && !opts.gif) throw new Error("Coche au moins une sorte d'étiquette.");
-      await beat();
-      const collection = await readCollection(true);
-      if (collection.tagsError) throw new Error(`Étiquettes illisibles : ${collection.tagsError}`);
-      const names = collection.tags || {};
-      const cardTags = collection.cardTags || (collection.cardTags = {});
-      const groups = copiesByCard(collection.rows, collection.titles, (copy) => (cardTags[copy] || []).map((id) => names[id] || ""));
-      let themes = {};
-      if (opts.themes) {
-        job.phase = "Classement des cartes sur Wikidata";
-        const titles = new Set([...groups.values()].map((copies) => copies[0].title).filter(Boolean));
-        themes = await classifyTitles(titles, (done, total) => { job.done = done; job.total = total; beat(); });
+  // Collection lue, cartes classées, plan calculé, rien d'écrit. -> { at, opts, collection, add, remove, create }
+  // add / remove : [[nom d'étiquette, [exemplaires], [cartes { title, rarity, shiny }]]]
+  async function planTags(job, opts) {
+    const collection = await readCollection(true);
+    if (collection.tagsError) throw new Error(`Étiquettes illisibles : ${collection.tagsError}`);
+    const names = collection.tags || {};
+    const cardTags = collection.cardTags || (collection.cardTags = {});
+    const groups = copiesByCard(collection.rows, collection.titles, (copy) => (cardTags[copy] || []).map((id) => names[id] || ""));
+    const themes = {};
+    if (opts.themes.length) {
+      job.phase = "Classement des cartes sur Wikidata";
+      const titles = new Set([...groups.values()].map((copies) => copies[0].title).filter(Boolean));
+      const matches = await classifyTitles(titles, (done, total) => { job.done = done; job.total = total; job.beat(); });
+      for (const [title, match] of Object.entries(matches)) themes[title] = pickThemes(match, WME_THEMES, opts.themes);
+    }
+    if (opts.gif) job.phase = "Lecture des GIF sur Wikipédia";
+    const frames = opts.gif ? await knownFrames(groups) : {};
+    const plan = tagPlan(groups, themes, { duplicate: opts.duplicate ? TAG_DUPLICATE : "", gif: opts.gif ? TAG_GIF : "", frames,
+      removable: WME_THEMES.themes.filter((t) => t.removable && opts.themes.includes(t.name)).map((t) => t.name) });
+    const byName = (list) => {
+      const out = new Map();
+      for (const [c, name] of list) {
+        if (!out.has(name)) out.set(name, { copies: new Set(), cards: [] });
+        const entry = out.get(name);
+        if (entry.copies.has(c.copy)) continue;
+        entry.copies.add(c.copy);
+        entry.cards.push({ title: c.title, rarity: c.rarity, shiny: c.shiny });
       }
-      if (opts.gif) job.phase = "Lecture des GIF sur Wikipédia";
-      const frames = opts.gif ? await knownFrames(groups) : {};
-      const plan = tagPlan(groups, themes, { duplicate: opts.duplicate ? TAG_DUPLICATE : "", gif: opts.gif ? TAG_GIF : "", frames,
-        removable: WME_THEMES.themes.filter((t) => t.removable).map((t) => t.name) });
-      const ids = tagIds(names);
-      job.missing = wantedTags(opts).filter((n) => !ids[tagKey(n)]);
-      const byTag = (list) => {
-        const out = new Map();
-        for (const [c, name] of list) {
-          const id = ids[tagKey(name)];
-          if (!id) continue; // étiquette absente du site : ignorée (signalée dans missing)
-          if (!out.has(id)) out.set(id, new Set());
-          out.get(id).add(c.copy);
-        }
-        return [...out].map(([id, copies]) => [id, [...copies]]);
-      };
-      const removes = byTag(plan.remove);
-      const adds = byTag(plan.add);
-      job.phase = "Pose des étiquettes";
-      job.done = 0;
-      job.total = [...removes, ...adds].reduce((n, [, copies]) => n + copies.length, 0);
-      for (const [tag, copies] of removes) {
-        for (let i = 0; i < copies.length; i += 100) {
-          const chunk = copies.slice(i, i + 100);
-          const response = await supaWrite("DELETE", `user_card_tags?tag_id=eq.${encodeURIComponent(tag)}&user_card_id=in.(${chunk.map(encodeURIComponent).join(",")})`);
-          if (!response.ok) throw new Error(`Retrait d'étiquette refusé (HTTP ${response.status})`);
-          for (const c of chunk) cardTags[c] = (cardTags[c] || []).filter((t) => t !== tag);
-          job.removed += chunk.length;
-          job.done += chunk.length;
-          await beat();
-          await sleep(TAG_GAP_MS);
-        }
+      return [...out].map(([name, e]) => [name, [...e.copies], e.cards]);
+    };
+    const ids = tagIds(names);
+    const add = byName(plan.add);
+    return { at: Date.now(), opts, collection, add, remove: byName(plan.remove).filter(([name]) => ids[tagKey(name)]),
+      create: add.map(([name]) => name).filter((name) => !ids[tagKey(name)]) };
+  }
+
+  // Résumé d'un plan pour le panneau : par étiquette, combien et quelles cartes (les PREVIEW_CARDS premières).
+  const previewOf = (pending, max = PREVIEW_CARDS) => ({
+    create: pending.create,
+    tags: [...pending.add.map((e) => ["add", ...e]), ...pending.remove.map((e) => ["remove", ...e])]
+      .map(([action, tag, copies, cards]) => ({ action, tag, count: copies.length,
+        cards: [...cards].sort((a, b) => a.title.localeCompare(b.title, "fr")).slice(0, max) })),
+  });
+
+  // Pose : crée les étiquettes qui manquent, puis retraits et ajouts par lots de 100.
+  async function applyTags(job, pending) {
+    job.phase = "Pose des étiquettes";
+    const a = await supaAccess();
+    let tags = await siteTags(a);
+    let ids = tagIds(tags);
+    const toCreate = pending.add.map(([name]) => name).filter((name) => !ids[tagKey(name)]);
+    for (const name of toCreate) {
+      const rule = WME_THEMES.themes.find((t) => t.name === name);
+      const label = rule && rule.emoji ? `${rule.emoji} ${name}` : name;
+      const response = await supaWrite("POST", "tags", { user_id: a.userId, name: label, color: (rule && rule.color) || TAG_COLORS[name] || "#6b7280" });
+      if (!response.ok && response.status !== 409) throw new Error(`Création de l'étiquette « ${label} » refusée (HTTP ${response.status})`);
+      job.created.push(label);
+      await sleep(TAG_GAP_MS);
+    }
+    if (toCreate.length) {
+      tags = await siteTags(a);
+      ids = tagIds(tags);
+      pending.collection.tags = tags;
+    }
+    const cardTags = pending.collection.cardTags;
+    job.done = 0;
+    job.total = [...pending.remove, ...pending.add].reduce((n, [, copies]) => n + copies.length, 0);
+    for (const [name, copies] of pending.remove) {
+      const tag = ids[tagKey(name)];
+      if (!tag) continue;
+      for (let i = 0; i < copies.length; i += 100) {
+        const chunk = copies.slice(i, i + 100);
+        const response = await supaWrite("DELETE", `user_card_tags?tag_id=eq.${encodeURIComponent(tag)}&user_card_id=in.(${chunk.map(encodeURIComponent).join(",")})`);
+        if (!response.ok) throw new Error(`Retrait d'étiquette refusé (HTTP ${response.status})`);
+        for (const c of chunk) cardTags[c] = (cardTags[c] || []).filter((t) => t !== tag);
+        job.removed += chunk.length;
+        job.done += chunk.length;
+        await job.beat();
+        await sleep(TAG_GAP_MS);
       }
-      for (const [tag, copies] of adds) {
-        for (let i = 0; i < copies.length; i += 100) {
-          const chunk = copies.slice(i, i + 100);
-          let response = await supaWrite("POST", "user_card_tags", chunk.map((c) => ({ user_card_id: c, tag_id: tag })));
-          if (response.status === 409) {
-            // Une des cartes l'a déjà (posée entre-temps) : le lot entier est refusé, on reprend une par une.
-            for (const c of chunk) {
-              response = await supaWrite("POST", "user_card_tags", { user_card_id: c, tag_id: tag });
-              if (!response.ok && response.status !== 409) break;
-              await sleep(TAG_GAP_MS);
-            }
+    }
+    for (const [name, copies] of pending.add) {
+      const tag = ids[tagKey(name)];
+      if (!tag) throw new Error(`Étiquette « ${name} » introuvable après sa création.`);
+      for (let i = 0; i < copies.length; i += 100) {
+        const chunk = copies.slice(i, i + 100);
+        let response = await supaWrite("POST", "user_card_tags", chunk.map((c) => ({ user_card_id: c, tag_id: tag })));
+        if (response.status === 409) {
+          // Une des cartes l'a déjà (posée entre-temps) : le lot entier est refusé, on reprend une par une.
+          for (const c of chunk) {
+            response = await supaWrite("POST", "user_card_tags", { user_card_id: c, tag_id: tag });
+            if (!response.ok && response.status !== 409) break;
+            await sleep(TAG_GAP_MS);
           }
-          if (!response.ok && response.status !== 409) throw new Error(`Pose d'étiquette refusée (HTTP ${response.status})`);
-          for (const c of chunk) if (!(cardTags[c] || []).includes(tag)) (cardTags[c] ||= []).push(tag);
-          job.added += chunk.length;
-          job.done += chunk.length;
-          await beat();
-          await sleep(TAG_GAP_MS);
         }
+        if (!response.ok && response.status !== 409) throw new Error(`Pose d'étiquette refusée (HTTP ${response.status})`);
+        for (const c of chunk) if (!(cardTags[c] || []).includes(tag)) (cardTags[c] ||= []).push(tag);
+        job.added += chunk.length;
+        job.done += chunk.length;
+        await job.beat();
+        await sleep(TAG_GAP_MS);
       }
-      await store.set(COLLECTION_KEY, collection); // les filtres voient tout de suite les nouvelles étiquettes
-      job.phase = "Terminé";
-    })().catch((error) => {
+    }
+    await store.set(COLLECTION_KEY, pending.collection); // les filtres voient tout de suite les nouvelles étiquettes
+  }
+
+  function newTagJob(mode) {
+    const job = { running: true, mode, phase: "Lecture de la collection", done: 0, total: 0, added: 0, removed: 0, created: [], error: "",
+      preview: null, pending: null, at: Date.now() };
+    // Verrou entre onglets pour le passage automatique : seulement pendant une pose.
+    job.beat = () => (job.mode === "apply" ? store.set(TAG_RUN_KEY, { at: job.at, running: true, beat: Date.now() }) : Promise.resolve());
+    return job;
+  }
+  function finishTagJob(job, work) {
+    work.catch((error) => {
       job.error = String((error && error.message) || error);
     }).finally(() => {
       job.running = false;
-      job.at = Date.now();
-      store.set(TAG_RUN_KEY, { at: job.at, running: false, added: job.added, removed: job.removed, error: job.error });
+      if (job.mode !== "apply") return;
+      job.phase = job.error ? "Arrêté" : "Terminé";
+      const preview = job.preview ? { create: job.preview.create, tags: job.preview.tags.map((t) => ({ ...t, cards: t.cards.slice(0, 50) })) } : null;
+      store.set(TAG_RUN_KEY, { at: Date.now(), running: false, added: job.added, removed: job.removed, created: job.created, error: job.error, preview });
     });
     return job;
   }
 
-  // Passage automatique (option « toutes les 6 h ») : un onglet du site visible, pas d'autre passage en cours ailleurs.
-  async function maybeAutoTag() {
-    const o = settings.autoTags || {};
-    if (!o.auto || !(o.themes || o.duplicate || o.gif) || (tagJob && tagJob.running) || document.hidden) return;
-    const last = await store.get(TAG_RUN_KEY, null);
-    if (last && (last.running ? Date.now() - (last.beat || 0) < 3 * 60e3 : Date.now() - last.at < TAG_EVERY_MS)) return;
-    autoTag();
+  // Aperçu (apply false) ou passage complet (apply true : passage automatique).
+  function autoTag({ apply = false } = {}) {
+    if (tagJob && tagJob.running) return tagJob;
+    const opts = tagOptions();
+    const job = tagJob = newTagJob(apply ? "apply" : "preview");
+    return finishTagJob(job, (async () => {
+      if (!anyTag(opts)) throw new Error("Coche au moins une étiquette.");
+      await job.beat();
+      const pending = await planTags(job, opts);
+      job.preview = previewOf(pending);
+      if (!apply) {
+        job.pending = pending;
+        job.phase = "Aperçu";
+        return;
+      }
+      await applyTags(job, pending);
+    })());
   }
 
-  // Crée sur le site les étiquettes voulues qui manquent (nom avec l'émoji des règles, leur couleur), comme le bouton
-  // « Nouvelle étiquette » du site (table tags). -> nombre créé
-  async function createTags() {
-    const a = await supaAccess();
-    const list = await (await fetch(`${a.base}tags?select=id,name&user_id=eq.${encodeURIComponent(a.userId)}`, { credentials: "omit", headers: a.headers })).json();
-    const tags = Object.fromEntries((Array.isArray(list) ? list : []).map((t) => [t.id, String(t.name || "")]));
-    const ids = tagIds(tags);
-    let created = 0;
-    for (const name of wantedTags().filter((n) => !ids[tagKey(n)])) {
-      const rule = WME_THEMES.themes.find((t) => t.name === name);
-      const label = rule && rule.emoji ? `${rule.emoji} ${name}` : name;
-      const response = await supaWrite("POST", "tags", { user_id: a.userId, name: label, color: (rule && rule.color) || TAG_COLORS[name] || "#6b7280" });
-      if (!response.ok && response.status !== 409) throw new Error(`Création de « ${label} » refusée (HTTP ${response.status})`);
-      created += 1;
-      await sleep(TAG_GAP_MS);
-    }
-    await store.set(COLLECTION_KEY, null); // nouvelles étiquettes : collection relue au prochain passage
-    if (tagJob && !tagJob.running) tagJob.missing = [];
-    return created;
+  // « Poser ces étiquettes » : le plan de l'aperçu, s'il est récent et que les options n'ont pas changé.
+  function applyPending() {
+    if (tagJob && tagJob.running) return tagJob;
+    const prev = tagJob;
+    if (!prev || !prev.pending || Date.now() - prev.pending.at > TAG_PREVIEW_TTL_MS) throw new Error("Aperçu trop ancien : clique de nouveau sur « Voir les étiquettes à poser ».");
+    if (JSON.stringify({ ...prev.pending.opts, auto: false }) !== JSON.stringify({ ...tagOptions(), auto: false })) throw new Error("Cases changées depuis l'aperçu : refais l'aperçu.");
+    const job = tagJob = newTagJob("apply");
+    job.preview = prev.preview;
+    return finishTagJob(job, (async () => {
+      await job.beat();
+      await applyTags(job, prev.pending);
+    })());
+  }
+
+  // Passage automatique (option « toutes les 6 h ») : un onglet du site visible, pas d'autre pose en cours ailleurs.
+  async function maybeAutoTag() {
+    const o = tagOptions();
+    if (!o.auto || !anyTag(o) || (tagJob && tagJob.running) || document.hidden) return;
+    const last = await store.get(TAG_RUN_KEY, null);
+    if (last && (last.running ? Date.now() - (last.beat || 0) < 3 * 60e3 : Date.now() - last.at < TAG_EVERY_MS)) return;
+    autoTag({ apply: true });
   }
 
   async function tagStatus() {
     const cached = await store.get(COLLECTION_KEY, null);
     const ids = cached && cached.tags ? tagIds(cached.tags) : null;
-    return { options: settings.autoTags, job: tagJob, last: await store.get(TAG_RUN_KEY, null),
-      missing: tagJob && !tagJob.running && tagJob.missing.length ? tagJob.missing : ids ? wantedTags().filter((n) => !ids[tagKey(n)]) : null };
+    const opts = tagOptions();
+    const job = tagJob ? (({ pending, beat, ...rest }) => ({ ...rest, ready: Boolean(pending) }))(tagJob) : null;
+    return { options: opts, themes: WME_THEMES.themes.map((t) => ({ name: t.name, color: t.color })), job, last: await store.get(TAG_RUN_KEY, null),
+      missing: ids ? wantedTags(opts).filter((n) => !ids[tagKey(n)]) : null };
   }
 
   async function loadWishPrices() {
@@ -2219,8 +2319,9 @@
         : message.action === "wishlist" ? panelWishlist(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "loadWishPrices" ? loadWishPrices().then((count) => ({ ok: true, count }))
         : message.action === "tagStatus" ? tagStatus().then((data) => ({ ok: true, ...data }))
-        : message.action === "tagRun" ? Promise.resolve({ ok: true, job: autoTag() })
-        : message.action === "tagCreate" ? createTags().then((count) => ({ ok: true, count }))
+        : message.action === "tagRun" ? Promise.resolve().then(() => { autoTag(); return { ok: true }; })
+        : message.action === "tagApply" ? Promise.resolve().then(() => { applyPending(); return { ok: true }; })
+        : message.action === "wishRestore" ? restoreWishlist().then((count) => ({ ok: true, count }))
         : message.action === "market" ? panelMarket(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "page" ? panelPage().then((data) => ({ ok: true, ...data }))
         : message.action === "bulkPreview" ? bulkPreview(message.rules || {}).then((data) => ({ ok: true, ...data }))
@@ -2256,7 +2357,7 @@
       if (settings.wishPrune) pruneWishlist().catch(() => {});
     } else if (message.type === "autoTags") {
       const o = message.options || {};
-      settings.autoTags = { themes: Boolean(o.themes), duplicate: Boolean(o.duplicate), gif: Boolean(o.gif), auto: Boolean(o.auto) };
+      settings.autoTags = tagOptions(o);
       store.set("settings", settings);
     } else if (message.type === "deals") {
       settings.deals = Boolean(message.on);
