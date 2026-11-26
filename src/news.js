@@ -6,6 +6,11 @@
 // les fonctionnalités expérimentales (elles restent cachées). option : réglage qu'un bouton « Activer » allume
 // (message au content script).
 const WME_NEWS = [
+  { version: "1.1.0", items: [
+    { text: "Collection : étiquettes automatiques, comme le bot WikiMastered. Les thèmes de chaque carte d'après Wikidata (Personne, Pays, Musique, Sport…), « Doublon » sur les exemplaires en trop, « GIF » sur les cartes animées ; un bouton crée les étiquettes qui manquent." },
+    { text: "Souhaits : une case pour retirer de ta liste les cartes que tu possèdes déjà." },
+    { text: "Filtres : choisis combien de cartes afficher, de 50 à toutes." },
+  ] },
   { version: "1.0.1", items: [
     { text: "Paquets : la page ne se recharge plus toute seule pendant que tu ouvres tes paquets, tu vois toutes tes cartes." },
   ] },

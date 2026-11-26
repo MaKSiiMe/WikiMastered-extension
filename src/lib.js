@@ -671,7 +671,9 @@ const WME = (() => {
       const sign = criteria.sort === "value-asc" ? 1 : -1;
       out.sort((a, b) => (value(a) === null) - (value(b) === null) || sign * ((value(a) || 0) - (value(b) || 0)) || rank(b.rarity) - rank(a.rarity));
     }
-    return { count: out.length, items: out.slice(0, 300) };
+    // Cartes affichées : criteria.limit (300 par défaut, 0 : toutes).
+    const limit = criteria.limit === 0 ? out.length : Number(criteria.limit) > 0 ? Number(criteria.limit) : 300;
+    return { count: out.length, items: out.slice(0, limit) };
   }
 
   /**
@@ -1009,7 +1011,182 @@ const WME = (() => {
     return Boolean(labs && Array.isArray(labs.unlocked) && Array.isArray(labs.on) && labs.unlocked.includes(id) && labs.on.includes(id));
   }
 
-  return { LABS, labCode, labOn, RARITIES, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  // ------------------------------------------------------------------ étiquettes automatiques (thèmes, doublons, GIF)
+  // Repris du bot WikiMastered (src/workers/themes.py, src/core/wikidata.py) : mêmes règles (src/themes.js), même
+  // exemplaire gardé, mêmes étiquettes posées et retirées.
+
+  /** Nom d'étiquette comparable : « 🎵 Musique », « #musique » et « Musique » donnent la même clé (émojis, dièse, espaces
+   * et casse ignorés ; accents gardés). */
+  function tagKey(name) {
+    return String(name || "").normalize("NFC").replace(/[\p{So}\p{Sk}\p{Cf}\p{Mn}]/gu, "").replace(/#/g, " ")
+      .toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+  }
+
+  /** Un mot de la description commence par l'un des mots (« footballeu ») ; un mot de 4 lettres ou moins (« dj ») : le
+   * mot exact ; une expression (espace, tiret) : contenue telle quelle. */
+  function describes(description, words) {
+    const text = String(description || "").toLowerCase();
+    const tokens = text.match(/[\p{L}\p{N}\p{M}_]+/gu) || [];
+    return (words || []).some((w) => (w.includes(" ") || w.includes("-") ? text.includes(w)
+      : tokens.some((t) => t === w || (w.length > 4 && t.startsWith(w)))));
+  }
+
+  const PERSON = "Q5"; // être humain : les règles « words » et « occupations » ne valent que pour les personnes
+  const SUBCLASS = "P279";
+  const TAXON = "P171";
+
+  /** Classes cherchées sur Wikidata : { natures, jobs, taxa } (Sets). */
+  function themeTargets(rules) {
+    const all = (key) => new Set(rules.themes.flatMap((t) => t[key] || []));
+    const natures = all("classes");
+    natures.add(PERSON);
+    return { natures, jobs: all("occupations"), taxa: all("taxa") };
+  }
+
+  /**
+   * Parents déjà lus de chaque classe (P279) et de chaque taxon (P171) : { P279: { Q: [parents] }, P171: {…} }.
+   * Les classes atteintes par un article se calculent en local à partir de ses liens directs (claims : { q, p31, p279,
+   * p106, p171, d }), comme les chemins SPARQL (P31/P279*)|P279+, P106/P279* et P171*.
+   */
+  function hierarchy(parents = {}) {
+    const known = { [SUBCLASS]: { ...(parents[SUBCLASS] || {}) }, [TAXON]: { ...(parents[TAXON] || {}) } };
+    const cache = new Map();
+    const walk = (starts, prop) => {
+      const list = [...new Set(starts)].sort();
+      const key = `${prop}|${list.join(",")}`;
+      if (cache.has(key)) return cache.get(key);
+      const map = known[prop];
+      const seen = new Set();
+      const unknown = new Set();
+      const stack = [...list];
+      while (stack.length) {
+        const node = stack.pop();
+        if (seen.has(node)) continue;
+        seen.add(node);
+        if (Object.hasOwn(map, node)) stack.push(...map[node]);
+        else unknown.add(node);
+      }
+      const out = { seen, unknown };
+      cache.set(key, out);
+      return out;
+    };
+    const classesOf = (c) => [...(c.p31 || []), ...(c.p279 || []), ...(c.p106 || [])];
+    const inter = (set, wanted) => new Set([...set].filter((x) => wanted.has(x)));
+    return {
+      parents: known,
+      add(prop, found) {
+        Object.assign(known[prop], found);
+        cache.clear();
+      },
+      /** Classes (prop P279) ou taxons (P171) atteints dont les parents ne sont pas encore lus. */
+      missing: (claims, prop) => walk(prop === SUBCLASS ? claims.flatMap(classesOf) : claims.flatMap((c) => c.p171 || []), prop).unknown,
+      complete: (c) => !walk(classesOf(c), SUBCLASS).unknown.size && !walk(c.p171 || [], TAXON).unknown.size,
+      facts(c, targets) {
+        const lineage = new Set(walk(c.p171 || [], TAXON).seen);
+        if (c.q) lineage.add(c.q);
+        return { natures: inter(walk([...(c.p31 || []), ...(c.p279 || [])], SUBCLASS).seen, targets.natures),
+          jobs: inter(walk(c.p106 || [], SUBCLASS).seen, targets.jobs), taxa: inter(lineage, targets.taxa), description: c.d || "" };
+      },
+    };
+  }
+
+  /** Thèmes d'un article (facts de hierarchy().facts), dans l'ordre des règles. */
+  function themesOf(facts, rules) {
+    const person = facts.natures.has(PERSON);
+    const some = (list, set) => (list || []).some((x) => set.has(x));
+    const found = [];
+    const trade = new Set(); // trouvés par la description ou le métier : « unless » ne les retire pas, une personne cumule
+    for (const t of rules.themes) {
+      if (some(t.classes, facts.natures) || some(t.taxa, facts.taxa)) found.push(t.name);
+      else if (person && (facts.description ? describes(facts.description, t.words) : some(t.occupations, facts.jobs))) {
+        found.push(t.name);
+        trade.add(t.name);
+      }
+    }
+    const rule = (name) => rules.themes.find((t) => t.name === name);
+    const kept = found.filter((n) => trade.has(n) || !(rule(n).unless || []).some((u) => found.includes(u)));
+    return kept.filter((n) => !rule(n).alone || kept.length === 1);
+  }
+
+  /** Nom du fichier GIF sur Wikimedia (« Franks_expansion.gif »), même pour une vignette (« …/thumb/2/23/X.gif/330px-X.gif ») ;
+   * "" : pas un GIF. */
+  function gifFile(imageUrl) {
+    let parts;
+    try {
+      parts = new URL(String(imageUrl || "")).pathname.split("/");
+    } catch (_) {
+      return "";
+    }
+    if (!/\.gif$/i.test(parts[parts.length - 1] || "")) return "";
+    try {
+      return decodeURIComponent(parts.includes("thumb") ? parts[parts.length - 2] : parts[parts.length - 1]);
+    } catch (_) {
+      return "";
+    }
+  }
+
+  /**
+   * Exemplaires de la collection groupés par carte, l'exemplaire gardé en premier : favori, shiny, plus haute rareté,
+   * puis le plus ancien (les lignes arrivent de la plus récente à la plus ancienne). rows : lignes de la collection
+   * ([exemplaire, carte, rareté, nombre, favori, shiny, image, fichier GIF]) ; tagsOf(exemplaire) -> noms d'étiquettes.
+   * -> Map carte -> [{ copy, card, title, rarity, starred, shiny, image, gif, tags: Set de clés }]
+   */
+  function copiesByCard(rows, titles, tagsOf = () => []) {
+    const groups = new Map();
+    rows.forEach(([copy, card, rarity, , starred, shiny, image, gif], age) => {
+      const list = groups.get(card) || [];
+      list.push({ copy, card, title: titles[card] || "", rarity, starred: Boolean(starred), shiny: Boolean(shiny), image, gif: gif || "",
+        age, tags: new Set(tagsOf(copy).map(tagKey)) });
+      groups.set(card, list);
+    });
+    for (const list of groups.values()) {
+      list.sort((a, b) => Number(b.starred) - Number(a.starred) || Number(b.shiny) - Number(a.shiny) || rank(b.rarity) - rank(a.rarity) ||
+        b.age - a.age || String(a.copy).localeCompare(String(b.copy)));
+    }
+    return groups;
+  }
+
+  /** Image animée ? true / false ; null : on ne sait pas (pas d'image, nombre d'images du GIF pas encore lu). */
+  function animated(c, frames) {
+    if (!c.image) return null;
+    if (c.image !== 2) return false;
+    const count = frames[c.gif];
+    return Number.isFinite(count) ? count > 1 : null;
+  }
+
+  /**
+   * Étiquettes à poser et à retirer, comme le bot : thèmes sur l'exemplaire gardé ; « Doublon » sur les autres et retiré
+   * du gardé ; « GIF » sur l'exemplaire gardé d'une carte vraiment animée, retiré des autres ; un thème `removable` que
+   * la carte n'a plus est retiré une fois un autre de ses thèmes posé. Rien n'est jamais retiré d'autre.
+   * groups : copiesByCard ; themes : titre -> [thèmes] (absent : pas encore classé) ; opts : { duplicate, gif (noms, ""
+   * = pas d'étiquette), frames, removable: [noms] }. -> { add: [[exemplaire, nom]], remove: [[exemplaire, nom]] }
+   */
+  function tagPlan(groups, themes, { duplicate = "", gif = "", frames = {}, removable = [] } = {}) {
+    const add = [];
+    const remove = [];
+    const dup = tagKey(duplicate);
+    const gifKey = tagKey(gif);
+    for (const copies of groups.values()) {
+      if (gifKey) {
+        const kept = copies.find((c) => animated(c, frames) === true);
+        if (kept && !kept.tags.has(gifKey)) add.push([kept, gif]);
+        for (const c of copies) if (c !== kept && c.tags.has(gifKey) && animated(c, frames) !== null) remove.push([c, gif]);
+      }
+      const main = copies[0];
+      const wanted = themes[main.title] || [];
+      for (const t of wanted) if (!main.tags.has(tagKey(t))) add.push([main, t]);
+      if (wanted.some((t) => main.tags.has(tagKey(t)))) {
+        for (const t of removable) if (!wanted.includes(t)) for (const c of copies) if (c.tags.has(tagKey(t))) remove.push([c, t]);
+      }
+      if (dup) {
+        for (const c of copies.slice(1)) if (!c.tags.has(dup)) add.push([c, duplicate]);
+        if (main.tags.has(dup)) remove.push([main, duplicate]);
+      }
+    }
+    return { add, remove };
+  }
+
+  return { LABS, labCode, labOn, RARITIES, tagKey, describes, themeTargets, hierarchy, themesOf, gifFile, copiesByCard, animated, tagPlan, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

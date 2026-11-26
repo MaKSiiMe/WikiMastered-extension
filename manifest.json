@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WikiMastered – Prix des cartes",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Wiki Masters : prix moyen des cartes, bilan des échanges, collection, filtres, souhaits et enchères chiffrés.",
   "permissions": [
     "storage",
@@ -69,6 +69,8 @@
       ],
       "js": [
         "src/lib.js",
+        "src/themes.js",
+        "src/wikidata.js",
         "src/click.js",
         "src/content.js"
       ],
