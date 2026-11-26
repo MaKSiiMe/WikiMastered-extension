@@ -864,7 +864,7 @@ function pullsRecap(recap) {
 
 function clickStatus(state) {
   const info = state.clickInfo;
-  if (!info || !(state.autoClickPack || state.autoUnblockMarket)) return null;
+  if (!info || !state.autoClickPack) return null;
   const notes = [info.challengeVisible && "vérification affichée", info.userQuiet ? "joueur inactif" : "joueur actif : pas de changement de page"].filter(Boolean);
   return h("p", { className: "muted" }, `État : ${info.status} · ${notes.join(" · ")}`);
 }
@@ -1123,7 +1123,6 @@ const DATA = [
   { key: "wmPulls", label: "Récap des paquets", clear: false, backup: true },
   { key: "wmPullBaseline", label: "Compteurs repris de « Prix moyen collection »", clear: false, backup: true },
   { key: "wmValueHistory", label: "Courbe de la valeur (une mesure par jour)", clear: false, backup: true },
-  { key: "wmFamilies", label: "Familles (onglet retiré en 0.15.0)", clear: true, backup: true },
   { key: "wmLimitLog", label: "Relevé des refus du site", clear: true, backup: true },
   { key: "settings", label: "Réglages", clear: false, backup: true },
   { key: "shared", label: "Prix partagés : adresse et jeton", clear: false, backup: true },

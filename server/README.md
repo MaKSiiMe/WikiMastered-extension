@@ -5,8 +5,8 @@ qu'il lit sur le site, et où il demande d'abord ceux que les autres ont déjà 
 (~90-100 lectures de `price-history` par 10 min et par compte) ne bouge pas : chacun lit seulement ce qu'il regarde, mais
 profite des lectures des autres.
 
-Pour l'instant, c'est un essai entre quelques participants de confiance : un jeton par participant, aucune vérification
-des prix déposés.
+Côté extension, c'est une fonctionnalité expérimentale (débloquée par un code). C'est un essai entre quelques
+participants de confiance : un jeton par participant, aucune vérification des prix déposés.
 
 ## Ce qui est gardé
 

@@ -479,7 +479,7 @@ test("fonctionnalités expérimentales : actives seulement débloquées et coch�
   assert.equal(WME.labOn({ unlocked: "openPacks", on: "openPacks" }, "openPacks"), false); // stockage abîmé
   assert.equal(WME.labCode("  Mot De Passe "), "wikimastered:motdepasse");
   const ids = WME.LABS.map((l) => l.id);
-  assert.deepEqual(ids, ["openPacks", "unblockMarket", "discardOnOpen", "discardPanel", "sellPanel", "sharedPrices"]);
+  assert.deepEqual(ids, ["openPacks", "discardOnOpen", "discardPanel", "sellPanel", "sharedPrices"]);
   for (const lab of WME.LABS) assert.match(lab.hash, /^[0-9a-f]{64}$/, lab.id);
   assert.equal(new Set(WME.LABS.map((l) => l.hash)).size, WME.LABS.length);
 });
