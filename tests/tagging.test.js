@@ -1,4 +1,4 @@
-// Étiquettes automatiques : mêmes résultats que le bot WikiMastered (tests/test_themes.py, repris cas par cas).
+// Étiquettes automatiques : règles des thèmes, exemplaire gardé, étiquettes posées et retirées.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -28,30 +28,34 @@ test("mots de la description", () => {
   assert.ok(!WME.describes("écrivain et aviateur", ["pilote automobile"]));
 });
 
-test("thèmes d'après Wikidata, comme le bot", () => {
+test("thèmes d'après Wikidata", () => {
   const cases = [
-    [person("actrice, productrice et mannequin israélienne"), ["Personne", "Cinéma / Série"]],
-    [person("écrivain, philosophe et journaliste français", ["Q2066131", "Q33999"]), ["Personne", "Littérature / BD"]],
+    [person("actrice, productrice et mannequin israélienne"), ["Personne", "Cinéma"]],
+    [person("écrivain, philosophe et journaliste français", ["Q2066131", "Q33999"]), ["Personne", "Littérature"]],
     [person("", ["Q2066131"]), ["Personne", "Sport"]],
     [person("rappeur et chanteur français"), ["Personne", "Musique"]],
     [person("femme politique française"), ["Personne", "Politique"]],
-    [person("actrice, réalisatrice, scénariste et écrivaine française"), ["Personne", "Cinéma / Série", "Littérature / BD"]],
-    [person("pasteur et homme d'État allemand"), ["Personne", "Politique", "Religion"]],
-    [person("compositeur, musicien, disc-jockey et producteur italien"), ["Personne", "Musique"]],
-    [facts("Q17", ["Q6256", "Q23442", "Q56061", "Q271669"]), ["Pays"]],
-    [facts("Q140", [], { taxa: ["Q729"] }), ["Animal"]],
-    [facts("Q49740", ["Q7889", "Q7397"]), ["Jeu vidéo"]],
+    [person("actrice, réalisatrice, scénariste et écrivaine française"), ["Personne", "Cinéma", "Littérature"]],
+    [facts("Q17", ["Q6256", "Q23442", "Q56061", "Q271669"]), ["Lieu"]], // un pays : pas de thème Pays, c'est un lieu
+    [facts("Q140", [], { taxa: ["Q729"] }), ["Animaux"]],
     [facts("Q243", ["Q41176", "Q811979", "Q8205328", "Q570116"]), ["Lieu"]],
-    [facts("Q1", ["Q39546"]), ["Objet"]],
-    [facts("Q4", ["Q16970", "Q41176", "Q811979", "Q8205328"]), ["Lieu", "Religion"]],
-    [facts("Q5", ["Q55488", "Q41176", "Q811979", "Q8205328"]), ["Lieu", "Transport"]],
-    [facts("Q6", ["Q1114461", "Q95074"]), ["Littérature / BD", "Personnage de fiction"]],
-    [facts("Q7", ["Q177597", "Q11446", "Q8205328"]), ["Militaire"]],
-    [facts("Q2", ["Q178561", "Q13418847"]), ["Histoire"]],
+    [facts("Q4", ["Q16970", "Q41176", "Q811979", "Q8205328"]), ["Lieu"]],
     [facts("Q3", ["Q14795564"]), []],
   ];
   for (const [f, expected] of cases) assert.deepEqual(WME.themesOf(f, RULES), expected, f.description || f.q);
-  assert.deepEqual(RULES.themes.filter((t) => t.removable).map((t) => t.name), ["Objet"]);
+  assert.deepEqual(RULES.themes.map((t) => t.name),
+    ["Personne", "Lieu", "Sport", "Cinéma", "Musique", "Science", "Politique", "Animaux", "Littérature", "Nature", "Art"]);
+});
+
+test("seuls les thèmes cochés sont posés, et « unless » ne regarde que ceux-là", () => {
+  const actress = WME.themeMatches(person("actrice et écrivaine française"), RULES);
+  assert.deepEqual(WME.pickThemes(actress, RULES, ["Personne"]), ["Personne"]);
+  assert.deepEqual(WME.pickThemes(actress, RULES, ["Cinéma", "Littérature"]), ["Cinéma", "Littérature"]);
+  // Art n'est pas posé sur un lieu… sauf si Lieu n'est pas coché.
+  const museum = { f: ["Lieu", "Art"], t: [] };
+  assert.deepEqual(WME.pickThemes(museum, RULES), ["Lieu"]);
+  assert.deepEqual(WME.pickThemes(museum, RULES, ["Art"]), ["Art"]);
+  assert.deepEqual(WME.pickThemes(museum, RULES, []), []);
 });
 
 test("la hiérarchie atteint les classes comme les chemins SPARQL", () => {

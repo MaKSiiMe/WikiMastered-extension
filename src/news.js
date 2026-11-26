@@ -7,11 +7,9 @@
 // (message au content script).
 const WME_NEWS = [
   { version: "1.1.0", items: [
-    { text: "Collection : étiquettes automatiques, comme le bot WikiMastered. Les thèmes de chaque carte d'après Wikidata (Personne, Pays, Musique, Sport…), « Doublon » sur les exemplaires en trop, « GIF » sur les cartes animées ; un bouton crée les étiquettes qui manquent." },
-    { text: "Souhaits : une case pour retirer de ta liste les cartes que tu possèdes déjà." },
+    { text: "Collection : étiquettes automatiques. Coche les thèmes que tu veux (Personne, Lieu, Sport, Cinéma, Musique…), « Doublon » ou « GIF » : l'extension te montre quelles cartes reçoivent quelle étiquette, puis les pose quand tu valides, et crée elle-même celles qui manquent sur ton compte." },
+    { text: "Souhaits : une case pour retirer de ta liste les cartes que tu possèdes déjà, avec un bouton pour les remettre." },
     { text: "Filtres : choisis combien de cartes afficher, de 50 à toutes." },
-  ] },
-  { version: "1.0.1", items: [
     { text: "Paquets : la page ne se recharge plus toute seule pendant que tu ouvres tes paquets, tu vois toutes tes cartes." },
   ] },
   { version: "1.0.0", items: [

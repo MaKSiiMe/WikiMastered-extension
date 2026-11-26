@@ -1012,8 +1012,7 @@ const WME = (() => {
   }
 
   // ------------------------------------------------------------------ étiquettes automatiques (thèmes, doublons, GIF)
-  // Repris du bot WikiMastered (src/workers/themes.py, src/core/wikidata.py) : mêmes règles (src/themes.js), même
-  // exemplaire gardé, mêmes étiquettes posées et retirées.
+  // Règles des thèmes : src/themes.js ; lectures de Wikipédia et Wikidata : src/wikidata.js.
 
   /** Nom d'étiquette comparable : « 🎵 Musique », « #musique » et « Musique » donnent la même clé (émojis, dièse, espaces
    * et casse ignorés ; accents gardés). */
@@ -1090,23 +1089,36 @@ const WME = (() => {
     };
   }
 
-  /** Thèmes d'un article (facts de hierarchy().facts), dans l'ordre des règles. */
-  function themesOf(facts, rules) {
+  /** Règles qui correspondent à un article (facts de hierarchy().facts), avant les thèmes cochés : { f: [thèmes], t: [ceux
+   * trouvés par la description ou le métier] }. Ne dépend pas des thèmes choisis : gardé tel quel d'un passage à l'autre. */
+  function themeMatches(facts, rules) {
     const person = facts.natures.has(PERSON);
     const some = (list, set) => (list || []).some((x) => set.has(x));
-    const found = [];
-    const trade = new Set(); // trouvés par la description ou le métier : « unless » ne les retire pas, une personne cumule
-    for (const t of rules.themes) {
-      if (some(t.classes, facts.natures) || some(t.taxa, facts.taxa)) found.push(t.name);
-      else if (person && (facts.description ? describes(facts.description, t.words) : some(t.occupations, facts.jobs))) {
-        found.push(t.name);
-        trade.add(t.name);
+    const f = [];
+    const t = [];
+    for (const rule of rules.themes) {
+      if (some(rule.classes, facts.natures) || some(rule.taxa, facts.taxa)) f.push(rule.name);
+      else if (person && (facts.description ? describes(facts.description, rule.words) : some(rule.occupations, facts.jobs))) {
+        f.push(rule.name);
+        t.push(rule.name);
       }
     }
-    const rule = (name) => rules.themes.find((t) => t.name === name);
+    return { f, t };
+  }
+
+  /** Thèmes d'un article parmi ceux cochés (selected : noms ; absent : tous), dans l'ordre des règles. « unless » ne
+   * regarde que les thèmes cochés et ne retire pas un thème trouvé par la description (une personne cumule). */
+  function pickThemes(match, rules, selected) {
+    const on = selected ? new Set(selected) : null;
+    const found = match.f.filter((n) => (!on || on.has(n)) && rules.themes.some((r) => r.name === n));
+    const trade = new Set(match.t);
+    const rule = (name) => rules.themes.find((r) => r.name === name);
     const kept = found.filter((n) => trade.has(n) || !(rule(n).unless || []).some((u) => found.includes(u)));
     return kept.filter((n) => !rule(n).alone || kept.length === 1);
   }
+
+  /** Thèmes d'un article, tous thèmes cochés. */
+  const themesOf = (facts, rules, selected) => pickThemes(themeMatches(facts, rules), rules, selected);
 
   /** Nom du fichier GIF sur Wikimedia (« Franks_expansion.gif »), même pour une vignette (« …/thumb/2/23/X.gif/330px-X.gif ») ;
    * "" : pas un GIF. */
@@ -1155,7 +1167,7 @@ const WME = (() => {
   }
 
   /**
-   * Étiquettes à poser et à retirer, comme le bot : thèmes sur l'exemplaire gardé ; « Doublon » sur les autres et retiré
+   * Étiquettes à poser et à retirer : thèmes sur l'exemplaire gardé ; « Doublon » sur les autres et retiré
    * du gardé ; « GIF » sur l'exemplaire gardé d'une carte vraiment animée, retiré des autres ; un thème `removable` que
    * la carte n'a plus est retiré une fois un autre de ses thèmes posé. Rien n'est jamais retiré d'autre.
    * groups : copiesByCard ; themes : titre -> [thèmes] (absent : pas encore classé) ; opts : { duplicate, gif (noms, ""
@@ -1186,7 +1198,7 @@ const WME = (() => {
     return { add, remove };
   }
 
-  return { LABS, labCode, labOn, RARITIES, tagKey, describes, themeTargets, hierarchy, themesOf, gifFile, copiesByCard, animated, tagPlan, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
+  return { LABS, labCode, labOn, RARITIES, tagKey, describes, themeTargets, hierarchy, themeMatches, pickThemes, themesOf, gifFile, copiesByCard, animated, tagPlan, rank, norm, quotes, RECENT_WEEKS, MIN_SALES, reliable, currentWeek, weekStart, ownershipIn, SALES_LIMIT, historyFromSales, salesComplete, totalSales, ago, cardsIn, tradesIn, tradeBalance, emptyPullLog, addPull, settlePullPrices, pullBaseline, pullRecap, readBudget, auctionsIn, auctionDeal, minBid, sessionFromCookies, collectionSummary, filterCollection, friendRows, wishlistSummary, friendOwnersIn, wishOwners, myMarketIn, packCardsIn, discardPicks, bulkDiscardPicks, packState, addDailyValue, countSince, addLimitEvent, siteLimit, wb };
 })();
 
 if (typeof module !== "undefined") module.exports = WME;

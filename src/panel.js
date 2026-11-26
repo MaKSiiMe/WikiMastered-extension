@@ -424,8 +424,8 @@ async function collectionView(first) {
         e.target.textContent = reply.ok ? `${fr(reply.count)} carte(s) en file : les prix arrivent au fil des minutes` : reply.error;
       } },
     }, missingRare ? `Lire les prix manquants des L, UR, SR (${fr(missingRare)})` : "Tous les prix des L, UR, SR sont connus"),
-    h("p", { className: "muted" }, "Seuls les prix connus comptent. Ils viennent des pages que tu ouvres, du serveur partagé (avec les " +
-      "lectures de ton bot) et de ce bouton (après les cartes affichées, dans le quota habituel)."),
+    h("p", { className: "muted" }, "Seuls les prix connus comptent. Ils viennent des pages que tu ouvres, du serveur partagé " +
+      "et de ce bouton (après les cartes affichées, dans le quota habituel)."),
     h("h3", {}, "Mes cartes les plus chères"),
     h("table", {}, ...sum.top.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
       h("td", { className: "num" }, `${c.sure ? "" : "≈ "}${wb(c.price)}`)))),
@@ -434,8 +434,9 @@ async function collectionView(first) {
   ];
 }
 
-// Étiquettes automatiques, comme le bot : thèmes lus sur Wikidata, « Doublon », « GIF » (src/content.js, autoTag).
-// Construit une fois : l'onglet se redessine toutes les 10 s sans effacer l'état du passage en cours.
+// Étiquettes automatiques : thèmes lus sur Wikidata (cochés un par un), « Doublon », « GIF » (src/content.js, autoTag).
+// D'abord l'aperçu (quelles cartes reçoivent quelle étiquette), puis la pose. Construit une fois : l'onglet se redessine
+// toutes les 10 s sans effacer l'aperçu ni l'état du passage en cours.
 let tagsBox = null;
 async function autoTagBox() {
   if (tagsBox) {
@@ -443,41 +444,99 @@ async function autoTagBox() {
     return tagsBox;
   }
   const first = await ask("panel", { action: "tagStatus" });
-  const o = { themes: false, duplicate: false, gif: false, auto: false, ...((first.ok && first.options) || {}) };
+  const o = { themes: [], duplicate: false, gif: false, auto: false, ...((first.ok && first.options) || {}) };
+  const themes = (first.ok && first.themes) || [];
   const status = h("p", { className: "muted" });
-  const missingBox = h("div", {});
-  const any = () => o.themes || o.duplicate || o.gif;
-  const run = h("button", { className: "act", disabled: !any(), on: { click: async () => {
-    run.disabled = true;
+  const missingLine = h("p", { className: "muted" });
+  const result = h("div", {});
+  const any = () => o.themes.length || o.duplicate || o.gif;
+  const save = async () => {
+    await ask("autoTags", { options: o });
+    result.replaceChildren(); // l'aperçu ne vaut plus pour d'autres cases
+    follow();
+  };
+  // Thèmes et GIF envoient des titres de cartes à Wikipédia et Wikidata : consentement Firefox demandé pendant le clic.
+  const consent = async (input) => {
+    if (await requestAccess([]).catch(() => false)) return true;
+    input.checked = false;
+    return false;
+  };
+  const themeBox = (t) => h("label", { className: "inline" }, h("input", { type: "checkbox", checked: o.themes.includes(t.name), on: { change: async (e) => {
+    if (e.target.checked && !o.themes.length && !o.gif && !await consent(e.target)) return;
+    o.themes = e.target.checked ? [...o.themes, t.name] : o.themes.filter((n) => n !== t.name);
+    await save();
+  } } }), " ", t.name);
+  const check = (key, label) => h("label", {}, h("input", { type: "checkbox", checked: Boolean(o[key]), on: { change: async (e) => {
+    if (key === "gif" && e.target.checked && !o.themes.length && !await consent(e.target)) return;
+    o[key] = e.target.checked;
+    await save();
+  } } }), label);
+  const previewButton = h("button", { className: "act", on: { click: async () => {
+    previewButton.disabled = true;
+    result.replaceChildren();
     const reply = await ask("panel", { action: "tagRun" });
     if (!reply.ok) status.textContent = reply.error;
     follow();
-  } } }, "Étiqueter maintenant");
-  const check = (key, label) => h("label", {}, h("input", { type: "checkbox", checked: Boolean(o[key]), on: { change: async (e) => {
-    // Thèmes et GIF envoient des titres de cartes à Wikipédia et Wikidata : consentement Firefox demandé pendant le clic.
-    if (e.target.checked && (key === "themes" || key === "gif") && !(await requestAccess([]).catch(() => false))) {
-      e.target.checked = false;
+  } } }, "Voir les étiquettes à poser");
+
+  // Aperçu ou dernière pose : une ligne par étiquette, la liste des cartes à déplier.
+  const listOf = (preview, done) => {
+    const total = preview.tags.reduce((n, t) => n + t.count, 0);
+    const rows = preview.tags.map((t) => h("details", {},
+      h("summary", {}, `${t.action === "remove" ? "Retirer" : done ? "Posée :" : "Poser"} « ${t.tag} » : ${fr(t.count)} carte(s)`),
+      h("p", { className: "muted" }, t.cards.map((c) => `${c.title} (${c.rarity}${c.shiny ? "✦" : ""})`).join(" · ") +
+        (t.count > t.cards.length ? ` · et ${fr(t.count - t.cards.length)} autre(s)` : ""))));
+    return { total, rows };
+  };
+  const showPreview = (job) => {
+    const { total, rows } = listOf(job.preview, false);
+    if (!total) {
+      result.replaceChildren(h("p", {}, "Rien à faire : tes cartes ont déjà les bonnes étiquettes."));
       return;
     }
-    o[key] = e.target.checked;
-    await ask("autoTags", { options: o });
-    follow();
-  } } }), label);
+    const go = h("button", { className: "act primary", on: { click: async () => {
+      go.disabled = true;
+      const reply = await ask("panel", { action: "tagApply" });
+      if (!reply.ok) { status.textContent = reply.error; go.disabled = false; return; }
+      follow();
+    } } }, `Poser ces ${fr(total)} étiquette(s)`);
+    result.replaceChildren(
+      h("p", {}, h("b", {}, `${fr(total)} changement(s) d'étiquette`), " (clique sur une ligne pour voir les cartes) :"),
+      ...rows,
+      job.preview.create.length ? h("p", { className: "muted" }, `L'extension créera d'abord sur ton compte : ${job.preview.create.join(", ")}.`) : null,
+      go);
+  };
+  let shownAt = 0;
   const show = (r) => {
     const j = r.job;
     const last = r.last;
-    run.disabled = !any() || Boolean(j && j.running);
-    status.textContent = j && j.running ? `${j.phase}${j.total ? ` : ${fr(j.done)} / ${fr(j.total)}` : ""}…`
-      : j ? (j.error ? `Arrêté : ${j.error}` : `Terminé : ${fr(j.added)} étiquette(s) posée(s), ${fr(j.removed)} retirée(s).`)
-      : last && last.at ? `Dernier passage le ${new Date(last.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} : ` +
-        (last.error ? `arrêté (${last.error}).` : `${fr(last.added || 0)} posée(s), ${fr(last.removed || 0)} retirée(s).`) : "";
+    previewButton.disabled = !any() || Boolean(j && j.running);
     const missing = any() && Array.isArray(r.missing) ? r.missing : [];
-    const create = h("button", { className: "act small", on: { click: async () => {
-      create.disabled = true;
-      const reply = await ask("panel", { action: "tagCreate" });
-      create.replaceWith(reply.ok ? ` ${fr(reply.count)} étiquette(s) créée(s).` : ` ${reply.error}`);
-    } } }, `Créer ces ${missing.length} étiquette(s) sur le site`);
-    missingBox.replaceChildren(...(missing.length ? [h("p", { className: "warn" }, `Pas encore sur le site (ignorées) : ${missing.join(", ")}. `, create)] : []));
+    missingLine.textContent = missing.length ? `Pas encore sur ton compte, créées par l'extension à la pose : ${missing.join(", ")}.` : "";
+    if (j && j.running) {
+      status.textContent = `${j.phase}${j.total ? ` : ${fr(j.done)} / ${fr(j.total)}` : ""}…`;
+      return;
+    }
+    if (j && j.error) {
+      status.textContent = `Arrêté : ${j.error}`;
+      return;
+    }
+    if (j && j.mode === "preview" && j.ready && j.preview) {
+      status.textContent = "";
+      if (shownAt !== j.at) { shownAt = j.at; showPreview(j); }
+      return;
+    }
+    if (j && j.mode === "apply") {
+      status.textContent = `Terminé : ${fr(j.added)} étiquette(s) posée(s), ${fr(j.removed)} retirée(s)` +
+        (j.created.length ? `, ${j.created.length} créée(s) (${j.created.join(", ")})` : "") + ".";
+      if (shownAt !== j.at && j.preview) { shownAt = j.at; result.replaceChildren(...listOf(j.preview, true).rows); }
+      return;
+    }
+    if (last && last.at) {
+      status.textContent = `Dernière pose le ${new Date(last.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })} : ` +
+        (last.error ? `arrêtée (${last.error}).` : `${fr(last.added || 0)} posée(s), ${fr(last.removed || 0)} retirée(s).`);
+      if (!shownAt && last.preview) { shownAt = last.at; result.replaceChildren(...listOf(last.preview, true).rows); }
+    }
   };
   let following = false;
   const follow = async () => {
@@ -497,17 +556,20 @@ async function autoTagBox() {
   };
   tagsBox = h("div", { className: "box" },
     h("h3", {}, "Étiquettes automatiques"),
-    check("themes", " Thèmes (Personne, Pays, Musique, Sport…), d'après Wikidata, sur un exemplaire de chaque carte"),
+    h("p", { className: "muted" }, "Thèmes, d'après Wikidata (sur un exemplaire de chaque carte) :"),
+    h("div", {}, ...themes.map(themeBox)),
     check("duplicate", " « Doublon » sur les exemplaires en trop"),
     check("gif", " « GIF » sur un exemplaire de chaque carte animée"),
-    check("auto", " Refaire toutes les 6 h (une page du site ouverte)"),
-    missingBox,
-    run, status,
-    h("p", { className: "muted" }, "Comme le bot WikiMastered : l'exemplaire gardé est le favori, sinon la shiny, sinon la plus haute rareté, " +
-      "puis le plus ancien. Seules tes étiquettes du même nom sont utilisées (émojis et majuscules ignorés). L'extension ne retire que « Doublon » " +
-      "et « GIF » quand elles ne vont plus, et « Objet » d'une carte qui a reçu un autre thème. Le premier classement lit Wikipédia et Wikidata " +
-      "(les titres de tes cartes, rien d'autre), page du site ouverte : quelques minutes, jusqu'à une demi-heure pour une très grande collection. " +
-      "Interrompu, il reprend où il s'était arrêté ; ensuite, seules les nouvelles cartes sont lues."));
+    check("auto", " Poser toute seule toutes les 6 h, sans aperçu (une page du site ouverte)"),
+    missingLine,
+    previewButton, status, result,
+    h("p", { className: "muted" }, "Rien n'est écrit avant « Poser ». Les étiquettes cochées qui n'existent pas encore sur ton compte sont " +
+      "créées par l'extension à ce moment-là ; tu peux aussi les créer toi-même sur le site, avec le même nom. Ensuite, change leur couleur ou " +
+      "ajoute un émoji si tu veux : elles restent reconnues (émojis et majuscules ignorés), mais pas si tu les renommes. L'exemplaire étiqueté " +
+      "est le favori, sinon la shiny, sinon la plus haute rareté, puis le plus ancien. L'extension ne retire que « Doublon » et « GIF » quand " +
+      "elles ne vont plus. Les thèmes viennent de Wikipédia et Wikidata (seuls les titres de tes cartes leur sont envoyés) : le premier aperçu " +
+      "prend quelques minutes, jusqu'à une demi-heure pour une très grande collection, page du site ouverte ; interrompu, il reprend où il " +
+      "s'était arrêté, et ensuite seules les nouvelles cartes sont lues."));
   tagsBox.follow = follow;
   follow();
   return tagsBox;
@@ -818,11 +880,32 @@ async function wishesView() {
   wishRefresh = false;
   if (!s.ok) return error(s);
   const pruned = s.pruned || {};
+  const mine = s.items.filter((i) => i.owned === true);
+  const toggle = h("input", { type: "checkbox", checked: Boolean(s.prune), on: { change: async (e) => {
+    if (e.target.checked && !await dialog({ title: "Retirer les cartes possédées",
+      lines: [mine.length ? `${fr(mine.length)} carte(s) de ta liste que tu possèdes déjà en seront retirées tout de suite, puis chaque carte que tu obtiens.`
+        : "Chaque carte de ta liste que tu obtiens en sera retirée.",
+      "Tu pourras toutes les remettre avec le bouton « Remettre »."], ok: "Retirer" })) {
+      e.target.checked = false;
+      return;
+    }
+    await ask("wishPrune", { on: e.target.checked });
+    draw(true);
+  } } });
+  const restore = h("button", { className: "act small", on: { click: async () => {
+    restore.disabled = true;
+    const reply = await ask("panel", { action: "wishRestore" });
+    restore.replaceWith(reply.ok ? ` ${fr(reply.count)} carte(s) remise(s) dans ta liste (case décochée).` : ` ${reply.error}`);
+    wishRefresh = true;
+    setTimeout(() => draw(true), 1500);
+  } } }, `Remettre les ${fr(pruned.count || 0)} carte(s) retirée(s)`);
   const pruneBox = h("div", {},
-    h("label", {}, h("input", { type: "checkbox", checked: Boolean(s.prune), on: { change: async (e) => { await ask("wishPrune", { on: e.target.checked }); draw(true); } } }),
-      " Retirer de ma liste les cartes que je possède (dans n'importe quelle rareté)"),
-    pruned.error ? h("p", { className: "warn" }, pruned.error)
-      : pruned.titles && pruned.titles.length ? h("p", { className: "muted" }, `Retirées : ${pruned.titles.join(", ")}.`) : null);
+    h("label", {}, toggle, " Retirer de ma liste les cartes que je possède (dans n'importe quelle rareté)"),
+    !s.prune && mine.length ? h("details", {}, h("summary", { className: "muted" }, `Tu possèdes déjà ${fr(mine.length)} carte(s) de ta liste (celles qui partiraient)`),
+      h("p", { className: "muted" }, mine.map((i) => i.title).join(" · "))) : null,
+    pruned.error ? h("p", { className: "warn" }, pruned.error) : null,
+    pruned.count ? h("p", { className: "muted" }, "Retirées : " + pruned.titles.join(", ") +
+      (pruned.count > pruned.titles.length ? " et " + fr(pruned.count - pruned.titles.length) + " autre(s)" : "") + ". ", restore) : null);
   if (!s.items.length) return [pruneBox, h("p", {}, "Ta liste de souhaits est vide.")];
   const f = s.friends || {};
   const friendsLine = f.reading ? h("p", { className: "muted" }, "Recherche de tes souhaits chez tes amis…")
@@ -1042,9 +1125,6 @@ async function buyStatic() {
       " Marquer les enchères sur le marché : « −34 % » bonne affaire, « +50 % » surcotée",
     info("Bonne affaire : l'enchère finit dans moins de 15 min et la mise minimum est au moins 25 % sous le prix moyen de la semaine. " +
       "Surcotée : la mise minimum dépasse ce prix de 50 % ou plus. Seulement avec un prix fiable, jamais pour un shiny.")),
-    h("div", { className: "box" }, h("h3", {}, "Bientôt : enchères plafonnées"),
-      h("p", { className: "muted" }, "Choisir une carte et un prix maximum, et laisser ton bot WikiMastered miser pour toi : réglé d'ici, " +
-        "avec ou sans bot déjà installé. Pour l'instant, l'extension ne mise jamais.")),
   ];
 }
 
@@ -1133,7 +1213,7 @@ async function sharedSection() {
   return [
     h("h3", {}, "Prix partagés"),
     h("p", { className: "muted" }, "Le principe : les participants mettent en commun les prix qu'ils lisent. Quand ton extension lit le prix d'une " +
-      "carte sur le site, elle le dépose sur un petit serveur ; quand il lui faut un prix qu'un autre participant (joueur ou bot) a lu depuis " +
+      "carte sur le site, elle le dépose sur un petit serveur ; quand il lui faut un prix qu'un autre participant a lu depuis " +
       "moins de 6 h, elle le reçoit de ce serveur au lieu de le relire."),
     h("p", { className: "muted" }, "Pourquoi : le site limite la lecture des prix à environ 90 cartes toutes les 10 minutes, par compte. Seul, " +
       "chiffrer une grande collection prend des heures ; à plusieurs, chacun en lit une partie et profite du reste. Le site reçoit aussi " +

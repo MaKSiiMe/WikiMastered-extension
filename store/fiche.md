@@ -24,7 +24,7 @@ Dans le panneau latéral :
 • ta liste de souhaits chiffrée, et ceux de tes amis qui peuvent te l'échanger ; en option, les cartes que tu possèdes en sont retirées ;
 • tes enchères en cours, gagnées et vendues, et les bonnes affaires du marché ;
 • le récap de tes paquets et tes taux de tirage du jour ;
-• en option, des étiquettes posées sur ta collection : le thème de chaque carte d'après Wikidata (Personne, Pays, Musique, Sport…), « Doublon » et « GIF ».
+• en option, des étiquettes posées sur ta collection : les thèmes que tu choisis d'après Wikidata (Personne, Lieu, Sport, Musique…), « Doublon » et « GIF », avec un aperçu des cartes avant de les poser.
 
 Respect du site : l'extension lit les mêmes informations que le site, lentement (au plus 10 lectures de prix par 30 secondes), et s'arrête dès que le site le demande. Par défaut, elle ne fait que lire : elle n'achète, ne mise, ne vend ni ne défausse rien à ta place.
 
