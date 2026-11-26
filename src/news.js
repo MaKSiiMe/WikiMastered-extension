@@ -6,6 +6,9 @@
 // les fonctionnalités expérimentales (elles restent cachées). option : réglage qu'un bouton « Activer » allume
 // (message au content script).
 const WME_NEWS = [
+  { version: "1.0.1", items: [
+    { text: "Paquets : la page ne se recharge plus toute seule pendant que tu ouvres tes paquets, tu vois toutes tes cartes." },
+  ] },
   { version: "1.0.0", items: [
     { text: "Version 1.0 : le prix moyen sur chaque carte, le bilan des échanges, et dans le panneau ta collection chiffrée, les filtres, tes souhaits, tes enchères et le récap de tes paquets." },
     { text: "Une idée, un problème ? Dis-le au développeur : les prochaines versions partiront de vos retours." },
