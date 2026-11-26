@@ -1,6 +1,6 @@
 # Confidentialité : WikiMastered – Prix des cartes
 
-Dernière mise à jour : 26 novembre 2026 (version 1.1).
+Dernière mise à jour : 26 novembre 2026 (version 1.2).
 
 WikiMastered est une extension de navigateur non officielle pour le jeu [Wiki Masters](https://www.wiki-masters.com/). Elle n'est ni développée ni approuvée par Wiki Masters.
 
@@ -17,7 +17,7 @@ Uniquement sur wiki-masters.com, avec ta session déjà ouverte sur le site :
 
 Par défaut, rien : elle ne fait que lire. Deux options, coupées par défaut, écrivent sur ton compte, comme les boutons du site : retirer de ta liste de souhaits les cartes que tu possèdes (onglet Souhaits) et poser des étiquettes sur ta collection (onglet Collection : thèmes, « Doublon », « GIF », et création des étiquettes qui manquent).
 
-Les fonctions qui agissent sur ton compte (ouverture auto des paquets, défausse, mise en vente) sont des fonctionnalités expérimentales, cachées : chacune se débloque par un code puis s'active après un avertissement accepté. La défausse et la mise en vente depuis le panneau demandent en plus une confirmation à chaque fois ; elles utilisent les mêmes requêtes que les boutons du site.
+Les fonctions qui agissent sur ton compte (ouverture auto des paquets, défausse, mise en vente) sont des fonctions avancées, coupées par défaut : chacune s'active par sa case dans les Réglages, après un avertissement accepté. La défausse et la mise en vente depuis le panneau demandent en plus une confirmation à chaque fois ; elles utilisent les mêmes requêtes que les boutons du site.
 
 ## Ce qu'elle garde
 
@@ -27,7 +27,7 @@ Le jeton de session du site n'est jamais enregistré par l'extension : il est lu
 
 ## Ce qu'elle envoie ailleurs (trois options, coupées par défaut)
 
-- **Prix partagés** (fonctionnalité expérimentale) : si tu l'actives (adresse d'un serveur et jeton, fournis par la personne qui gère ce serveur), l'extension envoie à ce serveur l'identifiant des cartes dont elle lit le prix et l'historique de prix du site, et lui demande ceux que les autres participants ont lus. Aucun pseudo, cookie ni contenu de collection n'est envoyé. Le serveur garde les lectures 30 jours au plus.
+- **Prix partagés** (fonction avancée) : si tu l'actives (adresse d'un serveur et jeton, fournis par la personne qui gère ce serveur), l'extension envoie à ce serveur l'identifiant des cartes dont elle lit le prix et l'historique de prix du site, et lui demande ceux que les autres participants ont lus. Aucun pseudo, cookie ni contenu de collection n'est envoyé. Le serveur garde les lectures 30 jours au plus.
 - **Images Wikipédia** : si tu l'actives, le titre des cartes sans image est envoyé à l'API publique de Wikipédia pour récupérer la vignette de l'article, sans cookie.
 - **Étiquettes de thème et « GIF »** : si tu les actives, le titre des cartes de ta collection est envoyé aux API publiques de Wikipédia et de Wikidata (`query.wikidata.org`) pour connaître le sujet de chaque article, et le nom des fichiers GIF à Wikipédia pour savoir s'ils sont animés, sans cookie ni pseudo.
 

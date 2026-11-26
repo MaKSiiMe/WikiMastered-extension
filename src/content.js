@@ -7,7 +7,7 @@
 //    (server/, via src/background.js) les lectures des autres participants, et y dépose les siennes.
 // 3. Il pose un badge « ≈ 1 250 » sur chaque carte de la page, retrouvée par son titre, et le bilan d'un échange
 //    affiché (ce que chaque côté donne).
-// 4. Il garde les réglages et les fonctionnalités expérimentales (src/lib.js, LABS ; src/click.js pour l'ouverture auto
+// 4. Il garde les réglages et les fonctions avancées (src/lib.js, LABS ; src/click.js pour l'ouverture auto
 //    des paquets, dans le même monde isolé) et répond au
 //    panneau de l'extension (src/panel.js, clic sur l'icône ou Alt+Maj+W) : compteurs, collection, réglages.
 (() => {
@@ -55,7 +55,7 @@
   const PULL_BASELINE_KEY = "wmPullBaseline"; // cartes comptées avant le journal, reprises une fois : { at, counts }
   const OTHER_PULL_STATS_KEY = "wm_pull_stats_v1"; // compteurs de « WikiMasters - Prix moyen collection » (localStorage)
   const AUTO_PULL_WINDOW_MS = 15e3;     // un paquet ouvert moins de 15 s après un clic de src/click.js est « auto »
-  const LABS_KEY = "wmLabs";            // fonctionnalités expérimentales : { unlocked, on } (src/lib.js, LABS ; panneau)
+  const LABS_KEY = "wmLabs";            // fonctions avancées : { on } (src/lib.js, LABS ; panneau)
   const SHARED_KEY = "shared";          // serveur de prix partagés : { on, url, token } (fenêtre, src/background.js)
   const SHARED_RECHECK_MS = 2 * 60e3;   // une carte absente du cache partagé y est redemandée après 2 min
   const SHARED_PUSH_MS = 3e3;           // lectures déposées par lots, au plus toutes les 3 s
@@ -74,17 +74,17 @@
 
   // Réglages persistés : badges actifs par défaut ; bonnes affaires du marché et images Wikipédia désactivées par
   // défaut. minWeekSales : ventes de la semaine à partir desquelles un prix est fiable. autoDiscard : les règles de la
-  // défausse à l'ouverture, qui ne tourne que si la fonctionnalité expérimentale est active (labs).
+  // défausse à l'ouverture, qui ne tourne que si la fonction avancée est cochée (labs).
   let settings = { badges: true, minWeekSales: MIN_SALES, deals: false, images: false,
     autoDiscard: { rarities: ["C", "PC"], maxPrice: null, duplicatesOnly: true },
     // wishPrune : retirer de la liste de souhaits les cartes possédées. autoTags : étiquettes automatiques (thèmes
     // Wikidata, « Doublon », « GIF »), à la demande ou toutes les 6 h (auto). Tout coupé par défaut.
     wishPrune: false, autoTags: { themes: [], duplicate: false, gif: false, auto: false } };
-  // Fonctionnalités expérimentales (src/lib.js, LABS) : tout ce qui agit à la place du joueur ne tourne que débloqué par
-  // son code et coché dans les Réglages du panneau. Une action d'une fonction verrouillée est refusée ici aussi.
-  let labs = { unlocked: [], on: [] };
+  // Fonctions avancées (src/lib.js, LABS) : tout ce qui agit à la place du joueur ne tourne que coché dans les Réglages.
+  // Une action d'une fonction décochée est refusée ici aussi.
+  let labs = { on: [] };
   const needLab = (id) => (labOn(labs, id) ? Promise.resolve()
-    : Promise.reject(new Error("Fonctionnalité expérimentale désactivée (Réglages).")));
+    : Promise.reject(new Error("Fonction avancée désactivée (Réglages, Fonctions avancées).")));
   let prices = {}; // id de carte -> { at, q: { SR: { avg, count, week } }, failed? }
   const seen = new Map(); // titre normalisé -> { id, title, rarities: Set, shiny: bool }
   const owned = new Map(); // id de carte -> true (on l'a) | false (on ne l'a pas), d'après le site (ownershipIn)
@@ -507,7 +507,7 @@
   }
   window.addEventListener("pagehide", () => { if (sharedOut.length) flushShared(); });
 
-  let sharedCfg = null; // dernière configuration lue, réappliquée quand la fonctionnalité expérimentale change
+  let sharedCfg = null; // dernière configuration lue, réappliquée quand la fonction avancée change
   function applySharedConfig(cfg) {
     sharedCfg = cfg;
     // Signature du serveur et du jeton (fin du jeton seulement) : une synchronisation faite avec un autre serveur ou un
@@ -2292,7 +2292,7 @@
     if (changes[LIMITS_KEY]) limitLog = changes[LIMITS_KEY].newValue || [];
     if (changes[PULLS_KEY]) pullLog = changes[PULLS_KEY].newValue || emptyPullLog();
     if (changes[PULL_BASELINE_KEY]) pullBaselineEntry = changes[PULL_BASELINE_KEY].newValue || null;
-    if (changes[LABS_KEY]) labs = changes[LABS_KEY].newValue || { unlocked: [], on: [] };
+    if (changes[LABS_KEY]) labs = changes[LABS_KEY].newValue || { on: [] };
     if (changes[SHARED_KEY] || changes[LABS_KEY]) applySharedConfig(changes[SHARED_KEY] ? changes[SHARED_KEY].newValue : sharedCfg);
   });
 
