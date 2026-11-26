@@ -5,4 +5,9 @@
 // plus, en commençant par l'onglet ou l'endroit concerné. Pas de détail technique, pas de correctif invisible, rien sur
 // les fonctionnalités expérimentales (elles restent cachées). option : réglage qu'un bouton « Activer » allume
 // (message au content script).
-const WME_NEWS = [];
+const WME_NEWS = [
+  { version: "1.0.0", items: [
+    { text: "Version 1.0 : le prix moyen sur chaque carte, le bilan des échanges, et dans le panneau ta collection chiffrée, les filtres, tes souhaits, tes enchères et le récap de tes paquets." },
+    { text: "Une idée, un problème ? Dis-le au développeur : les prochaines versions partiront de vos retours." },
+  ] },
+];

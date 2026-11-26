@@ -14,10 +14,10 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 - [x] **Limites de l'ouverture de paquets.** (0.4.1) `POST /api/packs/open` : 429 + `Retry-After` si deux ouvertures à moins de 2 s ; corps `rate_limited` / `retry_after` / `rate_limit_daily` ; 400 avec `packs_remaining: 0` quand il n'y a plus rien. `click.js` doit respecter `retry_after` et s'arrêter sur la limite quotidienne.
 - [x] ~~**Déblocage marché.**~~ Retiré en 1.0 : rien ne déclenchait le signal qu'il attendait (`wmNeedVerify`), il ne se lançait jamais.
 
-## v1 : le collectionneur
+## v1 : le collectionneur (1.0.0)
 
 ### Prix
-- [x] Prix partagés entre joueurs et bots (serveur commun, `server/`), en essai depuis la 0.5 : fonctionnalité expérimentale en 1.0, réservée aux participants qui ont un jeton. Ouverture plus large (contrôle des cotes déposées) : en v1.x ou plus tard.
+- [x] Prix partagés entre joueurs et bots (serveur commun, `server/`), en essai depuis la 0.5 : fonctionnalité expérimentale en 1.0, réservée aux participants qui ont un jeton. Lecture ouverte à tous : v1.x (#85).
 - [x] Nombre de ventes derrière chaque prix ; « ≈ » quand il y en a peu, seuil réglable. (Toolbox, henchoznoe) [#13](https://github.com/MaKSiiMe/WikiMastered-extension/issues/13) (0.6.2)
 - [x] Courbe de prix au survol d'un badge : un relevé local par rareté et par jour, gardé 90 jours, trous affichés. (henchoznoe) [#14](https://github.com/MaKSiiMe/WikiMastered-extension/issues/14) (0.10.0)
 - [x] Médiane et fourchette (Q1-Q3) quand assez de ventes, en plus du prix moyen du site. (henchoznoe) [#15](https://github.com/MaKSiiMe/WikiMastered-extension/issues/15) (0.10.0)
@@ -59,6 +59,7 @@ Relevé dans la doc d'API de [LeadOn/Wikimasters-Toolbox](https://github.com/Lea
 Ce que les premiers joueurs demanderont, puis :
 
 - [ ] Confort à trier après essai de Toolbox : pastille du thème, favori et étiquettes pendant la révélation, récap dans la marge, son de notification, raccourcis de la popup. [#53](https://github.com/MaKSiiMe/WikiMastered-extension/issues/53)
+- [ ] Prix partagés pour tous : chacun reçoit les prix du serveur sans jeton, adresse préremplie et activation en un clic ; le dépôt reste réservé aux jetons, ajoutés à la main. [#85](https://github.com/MaKSiiMe/WikiMastered-extension/issues/85)
 - [ ] Guilde : les enchères des cartes souhaitées par la guilde (route du site à relever).
 - [ ] Chrome Web Store (compte développeur payant, 5 $). [#29](https://github.com/MaKSiiMe/WikiMastered-extension/issues/29)
 - [ ] Version signée pour Firefox (AMO, gratuit). [#30](https://github.com/MaKSiiMe/WikiMastered-extension/issues/30)
