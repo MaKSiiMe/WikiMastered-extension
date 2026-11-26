@@ -11,7 +11,7 @@ Par défaut, elle ne fait que lire. Ce qui agit sur ton compte à ta place (ouvr
 | Version | Pour qui | Contenu |
 |---|---|---|
 | v0 (0.1 à 0.19) | tout le monde | Le prix moyen sur chaque carte, le bilan d'un échange, le panneau de l'extension, le récap des paquets. |
-| **v1** | le collectionneur | Courbe de prix, tableau de bord de la collection, filtres, liste de souhaits chiffrée, échanges chiffrés ; ce qui agit à ta place en fonctionnalités expérimentales. Puis, en v1.x : les retours des premiers joueurs, Chrome Web Store et Firefox signé. |
+| **v1** (1.0.0) | le collectionneur | Courbe de prix, tableau de bord de la collection, filtres, liste de souhaits chiffrée, échanges chiffrés ; ce qui agit à ta place en fonctionnalités expérimentales. Puis, en v1.x : les retours des premiers joueurs, les prix partagés reçus par tout le monde, Chrome Web Store et Firefox signé. |
 | v2 | l'investisseur | Synchronisée avec le bot [WikiMastered](https://github.com/MaKSiiMe/WikiMastered) : onglet « Bot », Stonks (profit réalisé et latent), trafic Wikipédia, alertes. |
 
 Le détail, case par case, avec les idées reprises des autres outils : [ROADMAP.md](ROADMAP.md).
