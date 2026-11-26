@@ -220,9 +220,9 @@ function sheetBox(sh) {
 // /pulls : le dernier paquet, avec la défausse carte par carte ou des doublons d'un coup.
 function pullsBox(pack, state) {
   const rules = state.autoDiscard || {};
-  const purge = WME.labOn(state.labs, "purge");
+  const purge = WME.labOn(state.labs, "discardPanel");
   const limit = rules.maxPrice !== null && rules.maxPrice !== undefined ? ", jusqu’à " + fr(rules.maxPrice) + " WB" : "";
-  const auto = WME.labOn(state.labs, "autodiscard")
+  const auto = WME.labOn(state.labs, "discardOnOpen")
     ? "Défausse auto : " + ((rules.rarities || []).join(", ") || "aucune rareté") + limit + (rules.duplicatesOnly ? ", doublons seulement." : ".") : "";
   const discard = async (cards) => {
     const what = cards.length === 1 ? `« ${cards[0].title} » (${cards[0].rarity})` : `${cards.length} cartes : ${cards.map((c) => c.title).join(", ")}`;
@@ -428,7 +428,7 @@ async function collectionView(first) {
     h("h3", {}, "Mes cartes les plus chères"),
     h("table", {}, ...sum.top.map((c) => h("tr", {}, h("td", {}, c.title), h("td", {}, rar(c.rarity)),
       h("td", { className: "num" }, `${c.sure ? "" : "≈ "}${wb(c.price)}`)))),
-    (await labActive("purge")) ? await bulkDiscardBox() : null,
+    (await labActive("discardPanel")) ? await bulkDiscardBox() : null,
   ];
 }
 
@@ -694,7 +694,7 @@ async function filtersView() {
     // Tous les exemplaires de la carte (doublons) : « L · UR ×2 · SR✦ », 🔒 pour les favoris (verrouillés par le site).
     const variants = (i) => i.variants.map((v) => `${v.rarity}${v.shiny ? "✦" : ""}${v.copies > 1 ? ` ×${v.copies}` : ""}${v.starred ? " 🔒" : ""}`).join(" · ");
     const mine = c.source === "me";
-    const canSell = mine && await labActive("sell");
+    const canSell = mine && await labActive("sellPanel");
     fill(results, 
       reply.source && h("p", { className: "muted" }, `Collection de ${reply.source}`),
       h("p", {}, `${fr(reply.count)} carte(s)${reply.count > reply.items.length ? ` (les ${reply.items.length} premières)` : ""}`),
@@ -789,7 +789,7 @@ async function packsView() {
   const timer = setInterval(() => (live.isConnected ? refresh() : clearInterval(timer)), 2e3);
   return [
     live,
-    WME.labOn(state.labs, "autodiscard") ? discardSettings(state.autoDiscard || {}) : null,
+    WME.labOn(state.labs, "discardOnOpen") ? discardSettings(state.autoDiscard || {}) : null,
   ];
 }
 
@@ -906,7 +906,7 @@ async function auctionsView() {
   refresh();
   const timer = setInterval(() => (live.isConnected ? refresh() : clearInterval(timer)), 5e3);
   return [seg, h("p", { className: "muted" }, "Tes enchères sur le marché du site", stamp, again), live,
-    ...(auctionSide === "buy" ? await buyStatic() : (await labActive("sell")) ? await sellStatic() : [])];
+    ...(auctionSide === "buy" ? await buyStatic() : (await labActive("sellPanel")) ? await sellStatic() : [])];
 }
 
 function buyLive(state, m) {
@@ -1032,7 +1032,7 @@ async function settingsView() {
       "Relire tous les prix"),
     h("h3", {}, "Données gardées par l'extension"),
     await dataSection(),
-    ...((await labActive("shared")) ? await sharedSection() : []),
+    ...((await labActive("sharedPrices")) ? await sharedSection() : []),
     h("h3", {}, "Fonctionnalité expérimentale"),
     await labsSection(),
   ];
@@ -1068,7 +1068,7 @@ async function labsSection() {
         if (box.checked && !await labWarning(lab)) { box.checked = false; return; }
         const now = await readLabs();
         await save({ ...now, on: box.checked ? [...new Set([...now.on, lab.id])] : now.on.filter((x) => x !== lab.id) });
-        if (lab.id === "shared") draw(true); // ses réglages apparaissent ou disparaissent plus haut
+        if (lab.id === "sharedPrices") draw(true); // ses réglages apparaissent ou disparaissent plus haut
       } } });
       const forget = h("button", { className: "act small", title: "Retirer de la liste (il faudra retaper le code)", on: { click: async () => {
         const now = await readLabs();

@@ -100,8 +100,8 @@
   async function getClickSettings() {
     const { [LABS_KEY]: labs } = await chrome.storage.local.get(LABS_KEY);
     return {
-      autoClickPack: WME.labOn(labs, "autopack"),
-      autoUnblockMarket: WME.labOn(labs, "unblock"),
+      autoClickPack: WME.labOn(labs, "openPacks"),
+      autoUnblockMarket: WME.labOn(labs, "unblockMarket"),
     };
   }
 

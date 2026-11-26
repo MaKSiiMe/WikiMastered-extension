@@ -509,7 +509,7 @@
     // Signature du serveur et du jeton (fin du jeton seulement) : une synchronisation faite avec un autre serveur ou un
     // autre participant ne vaut pas pour celui-ci.
     sharedSig = cfg && cfg.url ? `${cfg.url}|${String(cfg.token || "").slice(-6)}` : "";
-    const on = Boolean(cfg && cfg.on && cfg.url && cfg.token && labOn(labs, "shared"));
+    const on = Boolean(cfg && cfg.on && cfg.url && cfg.token && labOn(labs, "sharedPrices"));
     if (on === sharedOn) return;
     sharedOn = on;
     sharedAsked.clear();
@@ -1855,7 +1855,7 @@
   let discardError = "";
   async function autoDiscard(pack) {
     const rules = settings.autoDiscard;
-    if (!rules || !labOn(labs, "autodiscard")) return;
+    if (!rules || !labOn(labs, "discardOnOpen")) return;
     let cards = pack.cards;
     for (let round = 0; round < 13 && cards.length; round++) {
       if (round) await sleep(10e3);
@@ -1956,7 +1956,7 @@
         : message.action === "filter" ? panelFilter(message.criteria).then((data) => ({ ok: true, ...data }))
         : message.action === "friends" ? readFriends().then((names) => ({ ok: true, names }))
         : message.action === "friendStatus" ? Promise.resolve({ ok: true, ...friendStatus() })
-        : message.action === "sell" ? needLab("sell").then(() => sellCopy(message.copy, message.base, message.minutes)).then((r) => ({ ok: true, ...r }))
+        : message.action === "sell" ? needLab("sellPanel").then(() => sellCopy(message.copy, message.base, message.minutes)).then((r) => ({ ok: true, ...r }))
         : message.action === "loadCardPrices" ? Promise.resolve((message.ids || []).slice(0, 5000).forEach((id) => want(String(id), "background")))
           .then(() => ({ ok: true }))
         : message.action === "tags" ? panelTags(message.source).then((t) => ({ ok: true, ...t }))
@@ -1967,9 +1967,9 @@
         : message.action === "market" ? panelMarket(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }))
         : message.action === "page" ? panelPage().then((data) => ({ ok: true, ...data }))
         : message.action === "bulkPreview" ? bulkPreview(message.rules || {}).then((data) => ({ ok: true, ...data }))
-        : message.action === "bulkDiscard" ? needLab("purge").then(() => bulkDiscard(message.rules || {})).then((job) => ({ ok: true, job }))
+        : message.action === "bulkDiscard" ? needLab("discardPanel").then(() => bulkDiscard(message.rules || {})).then((job) => ({ ok: true, job }))
         : message.action === "bulkStatus" ? Promise.resolve({ ok: true, job: bulkJob })
-        : message.action === "discard" ? needLab("purge").then(() => (lastPack ? discardCards(lastPack.cards.filter((c) => (message.copies || []).includes(c.copy)), false)
+        : message.action === "discard" ? needLab("discardPanel").then(() => (lastPack ? discardCards(lastPack.cards.filter((c) => (message.copies || []).includes(c.copy)), false)
           : Promise.reject(new Error("Aucun paquet ouvert depuis le chargement de la page.")))).then((count) => ({ ok: true, count }))
           : panelSummary(Boolean(message.refresh)).then((data) => ({ ok: true, ...data }));
       work.catch((error) => ({ ok: false, error: String((error && error.message) || error) })).then(reply);
@@ -2019,8 +2019,8 @@
     settlePulls();
     reply({
       badges: settings.badges,
-      autoClickPack: labOn(labs, "autopack"),
-      autoUnblockMarket: labOn(labs, "unblock"),
+      autoClickPack: labOn(labs, "openPacks"),
+      autoUnblockMarket: labOn(labs, "unblockMarket"),
       labs,
       minSales: settings.minWeekSales,
       deals: settings.deals,

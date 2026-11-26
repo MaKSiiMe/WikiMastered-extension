@@ -472,14 +472,14 @@ test("défausse en masse : cote au plus N, jamais un favori ; étiquetées seule
 });
 
 test("fonctionnalités expérimentales : actives seulement débloquées et cochées", () => {
-  assert.equal(WME.labOn(null, "autopack"), false);
-  assert.equal(WME.labOn({ unlocked: ["autopack"], on: [] }, "autopack"), false); // débloquée, pas cochée
-  assert.equal(WME.labOn({ unlocked: [], on: ["autopack"] }, "autopack"), false); // cochée puis code retiré
-  assert.equal(WME.labOn({ unlocked: ["autopack"], on: ["autopack"] }, "autopack"), true);
-  assert.equal(WME.labOn({ unlocked: "autopack", on: "autopack" }, "autopack"), false); // stockage abîmé
-  assert.equal(WME.labCode("  AutoPack "), "wikimastered:autopack");
+  assert.equal(WME.labOn(null, "openPacks"), false);
+  assert.equal(WME.labOn({ unlocked: ["openPacks"], on: [] }, "openPacks"), false); // débloquée, pas cochée
+  assert.equal(WME.labOn({ unlocked: [], on: ["openPacks"] }, "openPacks"), false); // cochée puis code retiré
+  assert.equal(WME.labOn({ unlocked: ["openPacks"], on: ["openPacks"] }, "openPacks"), true);
+  assert.equal(WME.labOn({ unlocked: "openPacks", on: "openPacks" }, "openPacks"), false); // stockage abîmé
+  assert.equal(WME.labCode("  Mot De Passe "), "wikimastered:motdepasse");
   const ids = WME.LABS.map((l) => l.id);
-  assert.deepEqual(ids, ["autopack", "unblock", "autodiscard", "purge", "sell", "shared"]);
+  assert.deepEqual(ids, ["openPacks", "unblockMarket", "discardOnOpen", "discardPanel", "sellPanel", "sharedPrices"]);
   for (const lab of WME.LABS) assert.match(lab.hash, /^[0-9a-f]{64}$/, lab.id);
   assert.equal(new Set(WME.LABS.map((l) => l.hash)).size, WME.LABS.length);
 });

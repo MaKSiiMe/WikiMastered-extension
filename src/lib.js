@@ -992,17 +992,17 @@ const WME = (() => {
   // Ce n'est pas une protection (le dépôt est public, le stockage modifiable) : juste pas d'office pour tout le monde.
   // wmLabs (chrome.storage.local) : { unlocked: [id], on: [id] }.
   const LABS = [
-    { id: "autopack", hash: "47b0a7445e141956233fda71ec72ac5a72b1d0b448434e9f05e7da4169b9e677", label: "Ouverture auto des paquets",
+    { id: "openPacks", hash: "47b0a7445e141956233fda71ec72ac5a72b1d0b448434e9f05e7da4169b9e677", label: "Ouverture auto des paquets",
       detail: "Sur /pulls, l'extension clique sur « Ouvrir un paquet » dès qu'un paquet est disponible (après 5 min sans clic, frappe ni défilement)." },
-    { id: "unblock", hash: "9ce668cc03ca9de2595a68c267641c199d1f6e69f020e170d23fe939f49f6caf", label: "Tentative de déblocage du marché",
+    { id: "unblockMarket", hash: "9ce668cc03ca9de2595a68c267641c199d1f6e69f020e170d23fe939f49f6caf", label: "Tentative de déblocage du marché",
       detail: "Si le marché est bloqué, l'extension met la première carte de /collection aux enchères à 100 000 WB pour 10 min : c'est une vraie enchère." },
-    { id: "autodiscard", hash: "2cbf1d49acbdbf479d5330b278cca8cd200ae2c28fa3afef676fa70b2c84f2ee", label: "Défausse à l'ouverture des paquets",
+    { id: "discardOnOpen", hash: "2cbf1d49acbdbf479d5330b278cca8cd200ae2c28fa3afef676fa70b2c84f2ee", label: "Défausse à l'ouverture des paquets",
       detail: "À chaque paquet ouvert, les cartes qui répondent à tes règles (onglet Paquets) sont défaussées tout de suite, contre 1 WB chacune. C'est définitif." },
-    { id: "purge", hash: "f5adc641ec08cb8fbe7eeecd48e3ba1a09c76bff4c2df3ebc80dafe2410b2919", label: "Défausse depuis le panneau",
+    { id: "discardPanel", hash: "f5adc641ec08cb8fbe7eeecd48e3ba1a09c76bff4c2df3ebc80dafe2410b2919", label: "Défausse depuis le panneau",
       detail: "Boutons « Défausser » du dernier paquet (onglet Page) et défausse en masse (onglet Collection). Une carte défaussée est perdue." },
-    { id: "sell", hash: "ef9082f3c9219e468ecfe9bfc2c1fb2ade6449ebd71a29162d797bcda36a9e1c", label: "Mise en vente depuis le panneau",
+    { id: "sellPanel", hash: "ef9082f3c9219e468ecfe9bfc2c1fb2ade6449ebd71a29162d797bcda36a9e1c", label: "Mise en vente depuis le panneau",
       detail: "Bouton « Vendre » (onglets Filtres et Enchères) : met un exemplaire en trop aux enchères sur le marché du site." },
-    { id: "shared", hash: "f93f0b83b2769f7ba2996268603f45c887f715ff60cfb76bf4b3ec6272dc8eb4", label: "Prix partagés",
+    { id: "sharedPrices", hash: "f93f0b83b2769f7ba2996268603f45c887f715ff60cfb76bf4b3ec6272dc8eb4", label: "Prix partagés",
       detail: "Les prix lus sont déposés sur un serveur commun et repris de lui (adresse et jeton à demander au développeur)." },
   ];
   const labCode = (code) => `wikimastered:${String(code || "").toLowerCase().replace(/\s+/g, "")}`;

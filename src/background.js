@@ -16,7 +16,7 @@ const TIMEOUT_MS = 8000;
 
 async function config() {
   const { [SHARED_KEY]: shared, [LABS_KEY]: labs } = await chrome.storage.local.get([SHARED_KEY, LABS_KEY]);
-  const lab = Boolean(labs && Array.isArray(labs.unlocked) && Array.isArray(labs.on) && labs.unlocked.includes("shared") && labs.on.includes("shared"));
+  const lab = Boolean(labs && Array.isArray(labs.unlocked) && Array.isArray(labs.on) && labs.unlocked.includes("sharedPrices") && labs.on.includes("sharedPrices"));
   return lab && shared && shared.on && shared.url && shared.token ? shared : null;
 }
 
